@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-08-06)
 ## Current Position
 
 Phase: 1 of 4 (Authentication)
-Plan: 0 of 2 in current phase
-Status: Ready to plan
-Last activity: 2026-08-06 — Roadmap created, phases derived from 20 v1 requirements
+Plan: 1 of 2 in current phase
+Status: In progress
+Last activity: 2026-08-06 — Completed 01-01-PLAN.md (scaffold + DB schema)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 12%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: —
-- Total execution time: —
+- Total plans completed: 1
+- Average duration: ~10 min
+- Total execution time: ~10 min
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01-authentication | 1/2 | ~10 min | ~10 min |
 
 **Recent Trend:**
-- Last 5 plans: —
-- Trend: —
+- Last 5 plans: 01-01 (~10 min)
+- Trend: Baseline established
 
 *Updated after each plan completion*
 
@@ -47,6 +47,7 @@ Recent decisions affecting current work:
 - Routing: Haiku classifies complexity, routes to Haiku/Sonnet/Opus
 - Access: 1-hour free per 12-hour rolling window; admins grant +1/+2/+3 hour extensions
 - Bootstrap: `work@kickoff.africa` seeded as admin on first startup from env
+- Tooling: tsx (not ts-node) required for TypeScript 7 compatibility
 
 ### Pending Todos
 
@@ -54,10 +55,10 @@ None yet.
 
 ### Blockers/Concerns
 
-None yet.
+- ts-node@10.x is incompatible with TypeScript@7.x — all script runners must use `tsx`
 
 ## Session Continuity
 
 Last session: 2026-08-06
-Stopped at: Roadmap created. Ready to run /gsd:plan-phase 1
+Stopped at: Completed 01-01-PLAN.md
 Resume file: None
