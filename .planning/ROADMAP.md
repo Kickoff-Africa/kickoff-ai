@@ -45,11 +45,11 @@ Plans:
   3. Chat requests are blocked with a clear error when the user's time is exhausted
   4. User can submit an extension request for +1, +2, or +3 additional hours
   5. Admin can approve or deny a pending extension request; approved requests add the granted time immediately
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 02-01: Time window tracking, remaining-time query endpoint, and chat gating middleware
-- [ ] 02-02: Extension request submission, admin approve/deny endpoints
+- [ ] 02-01-PLAN.md — Migration, access service, status endpoint, and chat gating middleware
+- [ ] 02-02-PLAN.md — Extension request submission, admin approve/deny endpoints, requireAdmin middleware
 
 ### Phase 3: Chat
 **Goal**: Users can have AI-assisted conversations with Claude, with each message routed to the cheapest appropriate model
