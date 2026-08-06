@@ -25,4 +25,5 @@ export const config = {
   },
   appUrl: process.env.APP_URL ?? 'http://localhost:3000',
   adminEmail: requireEnv('ADMIN_EMAIL'),
+  anthropicApiKey: requireEnv('ANTHROPIC_API_KEY'),
 };
