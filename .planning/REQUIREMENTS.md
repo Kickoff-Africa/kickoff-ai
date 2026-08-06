@@ -24,11 +24,11 @@
 
 ### Chat
 
-- [ ] **CHAT-01**: User can create a new conversation (returns a conversation ID)
-- [ ] **CHAT-02**: User can send a message in a conversation and receive a full (non-streamed) Claude response
-- [ ] **CHAT-03**: System uses Claude Haiku to auto-classify message complexity, then routes to the cheapest appropriate model (Haiku → Sonnet → Opus)
-- [ ] **CHAT-04**: User can list all their past conversations (with title, last message timestamp)
-- [ ] **CHAT-05**: User can view the full message history of a specific conversation
+- [x] **CHAT-01**: User can create a new conversation (returns a conversation ID)
+- [x] **CHAT-02**: User can send a message in a conversation and receive a full (non-streamed) Claude response
+- [x] **CHAT-03**: System uses Claude Haiku to auto-classify message complexity, then routes to the cheapest appropriate model (Haiku → Sonnet → Opus)
+- [x] **CHAT-04**: User can list all their past conversations (with title, last message timestamp)
+- [x] **CHAT-05**: User can view the full message history of a specific conversation
 
 ### Admin
 
@@ -83,11 +83,11 @@
 | ACCS-04 | Phase 2 | Complete |
 | ACCS-05 | Phase 2 | Complete |
 | ACCS-06 | Phase 2 | Complete |
-| CHAT-01 | Phase 3 | Pending |
-| CHAT-02 | Phase 3 | Pending |
-| CHAT-03 | Phase 3 | Pending |
-| CHAT-04 | Phase 3 | Pending |
-| CHAT-05 | Phase 3 | Pending |
+| CHAT-01 | Phase 3 | Complete |
+| CHAT-02 | Phase 3 | Complete |
+| CHAT-03 | Phase 3 | Complete |
+| CHAT-04 | Phase 3 | Complete |
+| CHAT-05 | Phase 3 | Complete |
 | ADMN-01 | Phase 4 | Pending |
 | ADMN-02 | Phase 4 | Pending |
 | ADMN-03 | Phase 4 | Pending |
