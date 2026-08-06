@@ -15,12 +15,12 @@
 
 ### Access Control
 
-- [ ] **ACCS-01**: User has 1 hour of free AI access per 12-hour rolling window (tracked cumulatively)
-- [ ] **ACCS-02**: User can query their remaining time for the current 12-hour window
-- [ ] **ACCS-03**: API blocks chat requests and returns a clear error when user's time is exhausted
-- [ ] **ACCS-04**: User can submit an extension request for +1, +2, or +3 additional hours
-- [ ] **ACCS-05**: Admin can approve an extension request by selecting the granted duration
-- [ ] **ACCS-06**: Admin can deny an extension request
+- [x] **ACCS-01**: User has 1 hour of free AI access per 12-hour rolling window (tracked cumulatively)
+- [x] **ACCS-02**: User can query their remaining time for the current 12-hour window
+- [x] **ACCS-03**: API blocks chat requests and returns a clear error when user's time is exhausted
+- [x] **ACCS-04**: User can submit an extension request for +1, +2, or +3 additional hours
+- [x] **ACCS-05**: Admin can approve an extension request by selecting the granted duration
+- [x] **ACCS-06**: Admin can deny an extension request
 
 ### Chat
 
@@ -77,12 +77,12 @@
 | AUTH-03 | Phase 1 | Complete |
 | AUTH-04 | Phase 1 | Complete |
 | AUTH-05 | Phase 1 | Complete |
-| ACCS-01 | Phase 2 | Pending |
-| ACCS-02 | Phase 2 | Pending |
-| ACCS-03 | Phase 2 | Pending |
-| ACCS-04 | Phase 2 | Pending |
-| ACCS-05 | Phase 2 | Pending |
-| ACCS-06 | Phase 2 | Pending |
+| ACCS-01 | Phase 2 | Complete |
+| ACCS-02 | Phase 2 | Complete |
+| ACCS-03 | Phase 2 | Complete |
+| ACCS-04 | Phase 2 | Complete |
+| ACCS-05 | Phase 2 | Complete |
+| ACCS-06 | Phase 2 | Complete |
 | CHAT-01 | Phase 3 | Pending |
 | CHAT-02 | Phase 3 | Pending |
 | CHAT-03 | Phase 3 | Pending |
