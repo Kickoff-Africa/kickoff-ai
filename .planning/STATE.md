@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-08-06)
 
 **Core value:** Org members can have productive AI-assisted conversations within a controlled, auditable system where admins govern access and costs stay optimized.
-**Current focus:** Phase 3 — AI Routing / Chat
+**Current focus:** Phase 4 — Admin UI
 
 ## Current Position
 
-Phase: 3 of 4 (AI Routing / Chat) — In progress
-Plan: 1 of ? in Phase 3 — COMPLETE
-Status: Phase 3 in progress — 03-01 complete, 03-02 next
-Last activity: 2026-08-06 — Completed 03-01-PLAN.md (Anthropic SDK install, conversation CRUD endpoints)
+Phase: 3 of 4 (AI Routing / Chat) — COMPLETE
+Plan: 2 of 2 in Phase 3 — COMPLETE
+Status: Phase 3 complete — ready for Phase 4
+Last activity: 2026-08-06 — Completed 03-02-PLAN.md (Claude service + message endpoint)
 
-Progress: [██████░░░░] 60%
+Progress: [████████░░] 75%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: ~12 min
-- Total execution time: ~49 min
+- Total plans completed: 6
+- Average duration: ~10 min
+- Total execution time: ~51 min
 
 **By Phase:**
 
@@ -29,12 +29,12 @@ Progress: [██████░░░░] 60%
 |-------|-------|-------|----------|
 | 01-authentication | 2/2 | ~25 min | ~12 min |
 | 02-access-control | 2/2 | ~24 min | ~12 min |
-| 03-ai-routing | 1/? | ~11 min | ~11 min |
+| 03-ai-routing | 2/2 | ~13 min | ~6 min |
 | 04-admin-ui | 0/? | — | — |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (~10 min), 01-02 (~15 min), 02-01 (~12 min), 02-02 (~12 min), 03-01 (~11 min)
-- Trend: Consistent pace
+- Last 5 plans: 01-02 (~15 min), 02-01 (~12 min), 02-02 (~12 min), 03-01 (~11 min), 03-02 (~2 min)
+- Trend: Accelerating as codebase matures
 
 *Updated after each plan completion*
 
@@ -56,6 +56,10 @@ Recent decisions affecting current work:
 - Approve override: POST /:id/approve accepts its own `hours` body param (admin can grant different hours than requested)
 - Anthropic SDK: @anthropic-ai/sdk installed; config.anthropicApiKey exports the key via requireEnv
 - Conversations: ownership always verified with `WHERE id = $1 AND user_id = $2` before message access
+- Models: claude-haiku-4-5-20251001 (classify + simple), claude-sonnet-4-6 (moderate), claude-opus-4-6 (complex)
+- Auto-title: set once from first message content (truncated to 50 chars); never re-titled
+- Usage tracking: wall-clock seconds of each request tracked via addUsage() after response prepared
+- messagesRouter mounted at /conversations; route is /:conversationId/messages with mergeParams: true
 
 ### Pending Todos
 
@@ -68,5 +72,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-08-06
-Stopped at: Completed 03-01-PLAN.md (Anthropic SDK install, conversation CRUD endpoints)
+Stopped at: Completed 03-02-PLAN.md (Claude service + message send endpoint — Phase 3 complete)
 Resume file: None
