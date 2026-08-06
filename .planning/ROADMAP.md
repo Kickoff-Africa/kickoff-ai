@@ -29,11 +29,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. User's JWT remains valid across multiple requests without re-authenticating
   4. User can log out and their token is rejected on further requests
   5. The `work@kickoff.africa` account exists as admin automatically on first server startup
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 01-01: Project scaffold, database schema, and migrations (TypeScript + Express + PostgreSQL setup)
-- [ ] 01-02: Magic link generation, email delivery, JWT issuance, session persistence, and logout
+- [ ] 01-01-PLAN.md — Project scaffold, database connection, and full v1 schema migration
+- [ ] 01-02-PLAN.md — Magic link auth flow, JWT sessions, auth middleware, logout, admin seed
 
 ### Phase 2: Access Control
 **Goal**: AI usage is metered per rolling 12-hour window; users can request and admins can grant extensions
