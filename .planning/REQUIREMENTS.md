@@ -32,10 +32,10 @@
 
 ### Admin
 
-- [ ] **ADMN-01**: Admin can view all users with their usage statistics (time used, requests made, window resets)
-- [ ] **ADMN-02**: Admin can view all conversations and messages for any user
-- [ ] **ADMN-03**: Admin can view all access extension requests (pending, approved, denied)
-- [ ] **ADMN-04**: Admin can promote any existing user to admin role
+- [x] **ADMN-01**: Admin can view all users with their usage statistics (time used, requests made, window resets)
+- [x] **ADMN-02**: Admin can view all conversations and messages for any user
+- [x] **ADMN-03**: Admin can view all access extension requests (pending, approved, denied)
+- [x] **ADMN-04**: Admin can promote any existing user to admin role
 
 ## v2 Requirements
 
@@ -88,10 +88,10 @@
 | CHAT-03 | Phase 3 | Complete |
 | CHAT-04 | Phase 3 | Complete |
 | CHAT-05 | Phase 3 | Complete |
-| ADMN-01 | Phase 4 | Pending |
-| ADMN-02 | Phase 4 | Pending |
-| ADMN-03 | Phase 4 | Pending |
-| ADMN-04 | Phase 4 | Pending |
+| ADMN-01 | Phase 4 | Complete |
+| ADMN-02 | Phase 4 | Complete |
+| ADMN-03 | Phase 4 | Complete |
+| ADMN-04 | Phase 4 | Complete |
 
 **Coverage:**
 - v1 requirements: 20 total

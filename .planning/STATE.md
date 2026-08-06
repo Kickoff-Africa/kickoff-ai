@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-08-06)
 
 **Core value:** Org members can have productive AI-assisted conversations within a controlled, auditable system where admins govern access and costs stay optimized.
-**Current focus:** Phase 4 — Admin UI
+**Current focus:** v1 milestone — COMPLETE
 
 ## Current Position
 
-Phase: 4 of 4 (Admin) — In progress
-Plan: 1 of ? in Phase 4 — In progress
-Status: In progress
+Phase: 4 of 4 (Admin) — COMPLETE
+Plan: 1 of 1 in Phase 4 — COMPLETE
+Status: All phases complete — v1 milestone done
 Last activity: 2026-08-06 — Completed 04-01-PLAN.md (Admin router with 5 endpoints)
 
-Progress: [█████████░] 87%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -30,7 +30,7 @@ Progress: [█████████░] 87%
 | 01-authentication | 2/2 | ~25 min | ~12 min |
 | 02-access-control | 2/2 | ~24 min | ~12 min |
 | 03-ai-routing | 2/2 | ~13 min | ~6 min |
-| 04-admin-ui | 0/? | — | — |
+| 04-admin-ui | 1/1 | ~2 min | ~2 min |
 
 **Recent Trend:**
 - Last 5 plans: 01-02 (~15 min), 02-01 (~12 min), 02-02 (~12 min), 03-01 (~11 min), 03-02 (~2 min)

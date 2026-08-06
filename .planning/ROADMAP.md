@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Authentication** - Org members can securely identify themselves via magic link ✓ 2026-08-06
 - [x] **Phase 2: Access Control** - AI usage is metered per 12-hour window with admin override capability ✓ 2026-08-06
 - [x] **Phase 3: Chat** - Users can have full AI-assisted conversations with automatic model routing ✓ 2026-08-06
-- [ ] **Phase 4: Admin** - Admins have complete visibility into users, chats, and access requests
+- [x] **Phase 4: Admin** - Admins have complete visibility into users, chats, and access requests ✓ 2026-08-06
 
 ## Phase Details
 
@@ -79,7 +79,7 @@ Plans:
 **Plans:** 1 plan
 
 Plans:
-- [ ] 04-01-PLAN.md — Admin router with user stats, conversation visibility, extension request list, role promotion
+- [x] 04-01-PLAN.md — Admin router with user stats, conversation visibility, extension request list, role promotion
 
 ## Progress
 
@@ -91,4 +91,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Authentication | 2/2 | ✓ Complete | 2026-08-06 |
 | 2. Access Control | 2/2 | ✓ Complete | 2026-08-06 |
 | 3. Chat | 2/2 | ✓ Complete | 2026-08-06 |
-| 4. Admin | 0/1 | Not started | - |
+| 4. Admin | 1/1 | ✓ Complete | 2026-08-06 |
