@@ -7,11 +7,11 @@
 
 ### Authentication
 
-- [ ] **AUTH-01**: User can request a magic link sent to their org email address
-- [ ] **AUTH-02**: User can authenticate by clicking the magic link and receive a JWT
-- [ ] **AUTH-03**: User JWT session persists across requests without requiring re-login
-- [ ] **AUTH-04**: User can log out and have their token invalidated
-- [ ] **AUTH-05**: System seeds `work@kickoff.africa` as the admin account on first startup
+- [x] **AUTH-01**: User can request a magic link sent to their org email address
+- [x] **AUTH-02**: User can authenticate by clicking the magic link and receive a JWT
+- [x] **AUTH-03**: User JWT session persists across requests without requiring re-login
+- [x] **AUTH-04**: User can log out and have their token invalidated
+- [x] **AUTH-05**: System seeds `work@kickoff.africa` as the admin account on first startup
 
 ### Access Control
 
@@ -72,11 +72,11 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AUTH-01 | Phase 1 | Pending |
-| AUTH-02 | Phase 1 | Pending |
-| AUTH-03 | Phase 1 | Pending |
-| AUTH-04 | Phase 1 | Pending |
-| AUTH-05 | Phase 1 | Pending |
+| AUTH-01 | Phase 1 | Complete |
+| AUTH-02 | Phase 1 | Complete |
+| AUTH-03 | Phase 1 | Complete |
+| AUTH-04 | Phase 1 | Complete |
+| AUTH-05 | Phase 1 | Complete |
 | ACCS-01 | Phase 2 | Pending |
 | ACCS-02 | Phase 2 | Pending |
 | ACCS-03 | Phase 2 | Pending |
