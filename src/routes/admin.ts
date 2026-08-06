@@ -1,13 +1,64 @@
 import { Router, Request, Response } from 'express';
 import { query } from '../config/database';
+import { logger } from '../config/logger';
 import { authenticate, requireAdmin } from '../middleware/authenticate';
 
 export const adminRouter = Router();
 
-// All admin routes require authenticate + requireAdmin
 adminRouter.use(authenticate, requireAdmin);
 
-// GET /admin/users — all users with current-window usage statistics
+/**
+ * @openapi
+ * /admin/users:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List all users with usage statistics
+ *     description: Returns all users with their current access window usage stats (seconds used, total allowed, window expiry). Admin only.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: All users with stats
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 allOf:
+ *                   - $ref: '#/components/schemas/User'
+ *                   - type: object
+ *                     properties:
+ *                       seconds_used:
+ *                         type: number
+ *                       total_allowed:
+ *                         type: number
+ *                       window_start:
+ *                         type: string
+ *                         format: date-time
+ *                         nullable: true
+ *                       window_expires_at:
+ *                         type: string
+ *                         format: date-time
+ *                         nullable: true
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Admin access required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 adminRouter.get('/users', async (_req: Request, res: Response): Promise<void> => {
   try {
     const result = await query(
@@ -34,12 +85,55 @@ adminRouter.get('/users', async (_req: Request, res: Response): Promise<void> =>
 
     res.status(200).json(result.rows);
   } catch (err) {
-    console.error('GET /admin/users error:', err);
+    logger.error({ err }, 'GET /admin/users error');
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET /admin/users/:userId/conversations — all conversations for a specific user (no ownership check)
+/**
+ * @openapi
+ * /admin/users/{userId}/conversations:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List all conversations for any user
+ *     description: Returns all conversations for a given user. No ownership restriction — admin can inspect any user. Admin only.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: User's conversations
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Conversation'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Admin access required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 adminRouter.get('/users/:userId/conversations', async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = req.params;
@@ -58,12 +152,75 @@ adminRouter.get('/users/:userId/conversations', async (req: Request, res: Respon
 
     res.status(200).json(result.rows);
   } catch (err) {
-    console.error('GET /admin/users/:userId/conversations error:', err);
+    logger.error({ err, userId: req.params.userId }, 'GET /admin/users/:userId/conversations error');
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET /admin/conversations/:conversationId/messages — full conversation + messages (no ownership restriction)
+/**
+ * @openapi
+ * /admin/conversations/{conversationId}/messages:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get any conversation with full message history
+ *     description: Returns a conversation and all its messages. No ownership restriction — admin can view any conversation. Admin only.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Conversation with messages
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 conversation:
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/Conversation'
+ *                     - type: object
+ *                       properties:
+ *                         user_id:
+ *                           type: string
+ *                           format: uuid
+ *                         updated_at:
+ *                           type: string
+ *                           format: date-time
+ *                         messages:
+ *                           type: array
+ *                           items:
+ *                             $ref: '#/components/schemas/Message'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Admin access required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Conversation not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 adminRouter.get('/conversations/:conversationId/messages', async (req: Request, res: Response): Promise<void> => {
   try {
     const { conversationId } = req.params;
@@ -90,12 +247,62 @@ adminRouter.get('/conversations/:conversationId/messages', async (req: Request, 
 
     res.status(200).json({ conversation: { ...conversation, messages: messagesResult.rows } });
   } catch (err) {
-    console.error('GET /admin/conversations/:conversationId/messages error:', err);
+    logger.error({ err, conversationId: req.params.conversationId }, 'GET /admin/conversations/:conversationId/messages error');
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET /admin/extensions — all extension requests with optional ?status= filter
+/**
+ * @openapi
+ * /admin/extensions:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List all extension requests
+ *     description: Returns all access extension requests across all users with optional status filter. Admin only.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         required: false
+ *         schema:
+ *           type: string
+ *           enum: [pending, approved, denied]
+ *         description: Filter by request status. Omit to return all.
+ *     responses:
+ *       200:
+ *         description: Extension requests
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 allOf:
+ *                   - $ref: '#/components/schemas/ExtensionRequest'
+ *                   - type: object
+ *                     properties:
+ *                       user_email:
+ *                         type: string
+ *                         format: email
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Admin access required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 adminRouter.get('/extensions', async (req: Request, res: Response): Promise<void> => {
   try {
     const status = (req.query.status as string) || null;
@@ -119,12 +326,68 @@ adminRouter.get('/extensions', async (req: Request, res: Response): Promise<void
 
     res.status(200).json(result.rows);
   } catch (err) {
-    console.error('GET /admin/extensions error:', err);
+    logger.error({ err }, 'GET /admin/extensions error');
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// PATCH /admin/users/:userId/promote — promote a user to admin role
+/**
+ * @openapi
+ * /admin/users/{userId}/promote:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Promote a user to admin
+ *     description: Sets a user's role to admin. Cannot be used on your own account. Admin only.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: User promoted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         description: Cannot change your own role
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Admin access required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 adminRouter.patch('/users/:userId/promote', async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = req.params;
@@ -144,9 +407,10 @@ adminRouter.patch('/users/:userId/promote', async (req: Request, res: Response):
       return;
     }
 
+    logger.info({ promotedUserId: userId, byAdminId: req.user!.id }, 'User promoted to admin');
     res.status(200).json({ user: result.rows[0] });
   } catch (err) {
-    console.error('PATCH /admin/users/:userId/promote error:', err);
+    logger.error({ err, userId: req.params.userId }, 'PATCH /admin/users/:userId/promote error');
     res.status(500).json({ error: 'Internal server error' });
   }
 });

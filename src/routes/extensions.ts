@@ -1,11 +1,64 @@
 import { Router, Request, Response } from 'express';
 import { query } from '../config/database';
+import { logger } from '../config/logger';
 import { authenticate, requireAdmin } from '../middleware/authenticate';
 import { addExtensionToWindow } from '../services/access';
 
 export const extensionsRouter = Router();
 
-// POST /extensions/request — authenticated user submits a request
+/**
+ * @openapi
+ * /extensions/request:
+ *   post:
+ *     tags: [Extensions]
+ *     summary: Submit an access extension request
+ *     description: Submits a request for additional AI access time (+1, +2, or +3 hours). Only one pending request is allowed at a time.
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [hours]
+ *             properties:
+ *               hours:
+ *                 type: integer
+ *                 enum: [1, 2, 3]
+ *                 example: 2
+ *     responses:
+ *       201:
+ *         description: Request submitted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ExtensionRequest'
+ *       400:
+ *         description: Invalid hours value
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       409:
+ *         description: Pending request already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 extensionsRouter.post('/request', authenticate, async (req: Request, res: Response): Promise<void> => {
   try {
     const { hours } = req.body as { hours: unknown };
@@ -17,7 +70,6 @@ extensionsRouter.post('/request', authenticate, async (req: Request, res: Respon
 
     const userId = req.user!.id;
 
-    // Check for existing pending request
     const existing = await query(
       `SELECT id FROM access_extension_requests WHERE user_id = $1 AND status = 'pending'`,
       [userId],
@@ -28,7 +80,6 @@ extensionsRouter.post('/request', authenticate, async (req: Request, res: Respon
       return;
     }
 
-    // Insert new request
     const result = await query(
       `INSERT INTO access_extension_requests (user_id, requested_hours)
        VALUES ($1, $2)
@@ -36,14 +87,60 @@ extensionsRouter.post('/request', authenticate, async (req: Request, res: Respon
       [userId, hours],
     );
 
+    logger.info({ userId, hours }, 'Extension request submitted');
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    console.error('POST /extensions/request error:', err);
+    logger.error({ err, userId: req.user?.id }, 'POST /extensions/request error');
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET /extensions/pending — admin only: list pending requests
+/**
+ * @openapi
+ * /extensions/pending:
+ *   get:
+ *     tags: [Extensions]
+ *     summary: List pending extension requests (admin)
+ *     description: Returns all pending access extension requests. Admin only.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of pending requests
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 requests:
+ *                   type: array
+ *                   items:
+ *                     allOf:
+ *                       - $ref: '#/components/schemas/ExtensionRequest'
+ *                       - type: object
+ *                         properties:
+ *                           user_email:
+ *                             type: string
+ *                             format: email
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Admin access required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 extensionsRouter.get('/pending', authenticate, requireAdmin, async (_req: Request, res: Response): Promise<void> => {
   try {
     const result = await query(
@@ -56,12 +153,88 @@ extensionsRouter.get('/pending', authenticate, requireAdmin, async (_req: Reques
 
     res.status(200).json({ requests: result.rows });
   } catch (err) {
-    console.error('GET /extensions/pending error:', err);
+    logger.error({ err }, 'GET /extensions/pending error');
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// POST /extensions/:id/approve — admin only: approve request and grant time
+/**
+ * @openapi
+ * /extensions/{id}/approve:
+ *   post:
+ *     tags: [Extensions]
+ *     summary: Approve an extension request (admin)
+ *     description: Approves a pending extension request and immediately adds the granted time to the user's current access window. The admin may grant a different number of hours than requested.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [hours]
+ *             properties:
+ *               hours:
+ *                 type: integer
+ *                 enum: [1, 2, 3]
+ *                 example: 1
+ *     responses:
+ *       200:
+ *         description: Extension approved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 granted_hours:
+ *                   type: integer
+ *       400:
+ *         description: Invalid hours value
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Admin access required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Request not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       409:
+ *         description: Request is not pending
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 extensionsRouter.post('/:id/approve', authenticate, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
@@ -74,7 +247,6 @@ extensionsRouter.post('/:id/approve', authenticate, requireAdmin, async (req: Re
 
     const reviewerId = req.user!.id;
 
-    // Fetch the request
     const requestResult = await query(
       `SELECT id, user_id, status FROM access_extension_requests WHERE id = $1`,
       [id],
@@ -92,7 +264,6 @@ extensionsRouter.post('/:id/approve', authenticate, requireAdmin, async (req: Re
       return;
     }
 
-    // Update status
     await query(
       `UPDATE access_extension_requests
        SET status = 'approved', reviewed_by = $1, reviewed_at = NOW()
@@ -100,23 +271,79 @@ extensionsRouter.post('/:id/approve', authenticate, requireAdmin, async (req: Re
       [reviewerId, id],
     );
 
-    // Grant extension time
     await addExtensionToWindow(extensionRequest.user_id, (hours as number) * 3600);
 
+    logger.info({ requestId: id, reviewerId, grantedHours: hours, userId: extensionRequest.user_id }, 'Extension approved');
     res.status(200).json({ message: 'Extension approved', granted_hours: hours });
   } catch (err) {
-    console.error('POST /extensions/:id/approve error:', err);
+    logger.error({ err, requestId: req.params.id }, 'POST /extensions/:id/approve error');
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// POST /extensions/:id/deny — admin only: deny request
+/**
+ * @openapi
+ * /extensions/{id}/deny:
+ *   post:
+ *     tags: [Extensions]
+ *     summary: Deny an extension request (admin)
+ *     description: Denies a pending access extension request. Admin only.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Extension denied
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Extension denied
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Admin access required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Request not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       409:
+ *         description: Request is not pending
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 extensionsRouter.post('/:id/deny', authenticate, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const reviewerId = req.user!.id;
 
-    // Fetch the request
     const requestResult = await query(
       `SELECT id, user_id, status FROM access_extension_requests WHERE id = $1`,
       [id],
@@ -134,7 +361,6 @@ extensionsRouter.post('/:id/deny', authenticate, requireAdmin, async (req: Reque
       return;
     }
 
-    // Update status
     await query(
       `UPDATE access_extension_requests
        SET status = 'denied', reviewed_by = $1, reviewed_at = NOW()
@@ -142,9 +368,10 @@ extensionsRouter.post('/:id/deny', authenticate, requireAdmin, async (req: Reque
       [reviewerId, id],
     );
 
+    logger.info({ requestId: id, reviewerId }, 'Extension denied');
     res.status(200).json({ message: 'Extension denied' });
   } catch (err) {
-    console.error('POST /extensions/:id/deny error:', err);
+    logger.error({ err, requestId: req.params.id }, 'POST /extensions/:id/deny error');
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -1,10 +1,39 @@
 import { Router } from 'express';
 import { query } from '../config/database';
+import { logger } from '../config/logger';
 import { authenticate } from '../middleware/authenticate';
 
 export const conversationsRouter = Router();
 
-// POST / — create a new conversation
+/**
+ * @openapi
+ * /conversations:
+ *   post:
+ *     tags: [Conversations]
+ *     summary: Create a new conversation
+ *     description: Creates a new empty conversation and returns its ID.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       201:
+ *         description: Conversation created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Conversation'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 conversationsRouter.post('/', authenticate, async (req, res) => {
   try {
     const userId = req.user!.id;
@@ -19,12 +48,42 @@ conversationsRouter.post('/', authenticate, async (req, res) => {
       created_at: conversation.created_at,
     });
   } catch (err) {
-    console.error('POST /conversations error:', err);
+    logger.error({ err, userId: req.user?.id }, 'POST /conversations error');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET / — list all conversations for the authenticated user
+/**
+ * @openapi
+ * /conversations:
+ *   get:
+ *     tags: [Conversations]
+ *     summary: List all conversations
+ *     description: Returns all conversations belonging to the authenticated user, ordered by most recently active.
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of conversations
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Conversation'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 conversationsRouter.get('/', authenticate, async (req, res) => {
   try {
     const userId = req.user!.id;
@@ -43,12 +102,60 @@ conversationsRouter.get('/', authenticate, async (req, res) => {
       created_at: row.created_at,
     })));
   } catch (err) {
-    console.error('GET /conversations error:', err);
+    logger.error({ err, userId: req.user?.id }, 'GET /conversations error');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET /:id — get a single conversation with its messages
+/**
+ * @openapi
+ * /conversations/{id}:
+ *   get:
+ *     tags: [Conversations]
+ *     summary: Get a conversation with messages
+ *     description: Returns a single conversation and its full message history, ordered chronologically. Only the owning user can access their conversations.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Conversation with messages
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/Conversation'
+ *                 - type: object
+ *                   properties:
+ *                     messages:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/Message'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Conversation not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 conversationsRouter.get('/:id', authenticate, async (req, res) => {
   try {
     const userId = req.user!.id;
@@ -86,7 +193,7 @@ conversationsRouter.get('/:id', authenticate, async (req, res) => {
       })),
     });
   } catch (err) {
-    console.error(`GET /conversations/:id error:`, err);
+    logger.error({ err, conversationId: req.params.id }, 'GET /conversations/:id error');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

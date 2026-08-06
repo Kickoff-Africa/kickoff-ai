@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query } from '../config/database';
+import { logger } from '../config/logger';
 import { authenticate } from '../middleware/authenticate';
 import { checkAccess } from '../middleware/checkAccess';
 import { classifyComplexity, getModelForComplexity, chat } from '../services/claude';
@@ -7,13 +8,103 @@ import { addUsage } from '../services/access';
 
 export const messagesRouter = Router({ mergeParams: true });
 
-// POST /conversations/:conversationId/messages
+/**
+ * @openapi
+ * /conversations/{conversationId}/messages:
+ *   post:
+ *     tags: [Messages]
+ *     summary: Send a message and receive a Claude response
+ *     description: |
+ *       Sends a user message within a conversation and returns the AI response.
+ *
+ *       **Model routing:** The message is first classified by Claude Haiku (simple/moderate/complex).
+ *       Simple and moderate messages are handled by Haiku; complex messages are routed to Sonnet.
+ *
+ *       **Usage tracking:** Wall-clock time for the request is deducted from the user's access window after the response is prepared.
+ *
+ *       **Auto-titling:** The conversation title is set automatically from the first 50 characters of the first message.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [content]
+ *             properties:
+ *               content:
+ *                 type: string
+ *                 example: What is the capital of France?
+ *     responses:
+ *       201:
+ *         description: Assistant response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   $ref: '#/components/schemas/Message'
+ *                 model_used:
+ *                   type: string
+ *                   example: claude-haiku-4-5-20251001
+ *                 tokens_used:
+ *                   type: integer
+ *                   example: 142
+ *       400:
+ *         description: Message content missing or invalid
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Conversation not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       429:
+ *         description: Access time exhausted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                 seconds_used:
+ *                   type: number
+ *                 total_allowed:
+ *                   type: number
+ *                 window_expires_at:
+ *                   type: string
+ *                   format: date-time
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
 messagesRouter.post('/:conversationId/messages', authenticate, checkAccess, async (req, res) => {
   try {
     const startTime = Date.now();
     const { content } = req.body;
 
-    // 1. Validate input
     if (!content || typeof content !== 'string') {
       return res.status(400).json({ error: 'Message content is required' });
     }
@@ -21,7 +112,6 @@ messagesRouter.post('/:conversationId/messages', authenticate, checkAccess, asyn
     const userId = req.user!.id;
     const { conversationId } = req.params;
 
-    // 2. Verify ownership
     const convResult = await query(
       `SELECT id, title FROM conversations WHERE id = $1 AND user_id = $2`,
       [conversationId, userId],
@@ -33,13 +123,11 @@ messagesRouter.post('/:conversationId/messages', authenticate, checkAccess, asyn
 
     const conversation = convResult.rows[0] as { id: string; title: string | null };
 
-    // 3. Insert user message
     await query(
       `INSERT INTO messages (conversation_id, role, content) VALUES ($1, 'user', $2)`,
       [conversationId, content],
     );
 
-    // 4. Load full conversation history for context
     const historyResult = await query(
       `SELECT role, content FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
       [conversationId],
@@ -47,14 +135,13 @@ messagesRouter.post('/:conversationId/messages', authenticate, checkAccess, asyn
 
     const historyRows = historyResult.rows as Array<{ role: 'user' | 'assistant'; content: string }>;
 
-    // 5. Classify and route
     const complexity = await classifyComplexity(content);
     const model = getModelForComplexity(complexity);
 
-    // 6. Call Claude
+    logger.debug({ conversationId, complexity, model }, 'Message classified and routed');
+
     const { content: assistantContent, tokensUsed } = await chat(historyRows, model);
 
-    // 7. Insert assistant message
     const assistantResult = await query(
       `INSERT INTO messages (conversation_id, role, content, model_used, tokens_used)
        VALUES ($1, 'assistant', $2, $3, $4)
@@ -64,7 +151,6 @@ messagesRouter.post('/:conversationId/messages', authenticate, checkAccess, asyn
 
     const assistantMessage = assistantResult.rows[0];
 
-    // 8. Auto-title or update updated_at
     if (conversation.title === null) {
       const title = content.slice(0, 50) + (content.length > 50 ? '...' : '');
       await query(
@@ -78,9 +164,10 @@ messagesRouter.post('/:conversationId/messages', authenticate, checkAccess, asyn
       );
     }
 
-    // 9. Track usage
     const elapsedSeconds = (Date.now() - startTime) / 1000;
     await addUsage(userId, elapsedSeconds);
+
+    logger.info({ userId, conversationId, model, tokensUsed, elapsedSeconds }, 'Message processed');
 
     return res.status(201).json({
       message: assistantMessage,
@@ -88,7 +175,7 @@ messagesRouter.post('/:conversationId/messages', authenticate, checkAccess, asyn
       tokens_used: tokensUsed,
     });
   } catch (err) {
-    console.error('POST /conversations/:conversationId/messages error:', err);
+    logger.error({ err, conversationId: req.params.conversationId, userId: req.user?.id }, 'POST /conversations/:conversationId/messages error');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
