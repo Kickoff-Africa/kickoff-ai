@@ -61,11 +61,11 @@ Plans:
   3. Each message is classified by Claude Haiku and routed to Haiku, Sonnet, or Opus based on complexity
   4. User can list all their past conversations with title and last message timestamp
   5. User can retrieve the full message history of any specific conversation
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 03-01: Conversation management (create, list, retrieve history)
-- [ ] 03-02: Message send, Haiku classification, model routing, Claude API integration, usage time deduction
+- [ ] 03-01-PLAN.md — Anthropic SDK setup, conversation CRUD endpoints (create, list, get with history)
+- [ ] 03-02-PLAN.md — Claude service (classify + route + chat), message send endpoint with full pipeline
 
 ### Phase 4: Admin
 **Goal**: Admins have full visibility into all users, all conversations, and all access requests, with role management
