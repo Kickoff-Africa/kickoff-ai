@@ -1,6 +1,7 @@
 import express from 'express';
 import { config } from './config/env';
-import { pool } from './config/database';
+import { pool, query } from './config/database';
+import { authRouter } from './routes/auth';
 
 export const app = express();
 
@@ -10,6 +11,8 @@ app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+app.use('/auth', authRouter);
+
 async function start(): Promise<void> {
   try {
     const result = await pool.query('SELECT NOW()');
@@ -17,6 +20,21 @@ async function start(): Promise<void> {
   } catch (err) {
     console.error('Failed to connect to database:', err);
     process.exit(1);
+  }
+
+  // Seed admin user on startup
+  try {
+    const seedResult = await query(
+      `INSERT INTO users (email, role) VALUES ($1, $2) ON CONFLICT (email) DO NOTHING`,
+      [config.adminEmail, 'admin'],
+    );
+    if (seedResult.rowCount && seedResult.rowCount > 0) {
+      console.log(`Admin user ${config.adminEmail} created`);
+    } else {
+      console.log(`Admin user ${config.adminEmail} already exists`);
+    }
+  } catch (err) {
+    console.error('Failed to seed admin user:', err);
   }
 
   app.listen(config.port, () => {
