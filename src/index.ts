@@ -6,6 +6,7 @@ import { accessRouter } from './routes/access';
 import { extensionsRouter } from './routes/extensions';
 import { conversationsRouter } from './routes/conversations';
 import { messagesRouter } from './routes/messages';
+import { adminRouter } from './routes/admin';
 
 export const app = express();
 
@@ -20,6 +21,7 @@ app.use('/access', accessRouter);
 app.use('/extensions', extensionsRouter);
 app.use('/conversations', conversationsRouter);
 app.use('/conversations', messagesRouter);
+app.use('/admin', adminRouter);
 
 async function start(): Promise<void> {
   try {
