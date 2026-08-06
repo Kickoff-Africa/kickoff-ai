@@ -18,8 +18,8 @@ export async function classifyComplexity(message: string): Promise<"simple" | "m
 export function getModelForComplexity(complexity: "simple" | "moderate" | "complex"): string {
   const models = {
     simple: "claude-haiku-4-5-20251001",
-    moderate: "claude-sonnet-4-6",
-    complex: "claude-opus-4-6"
+    moderate: "claude-haiku-4-5-20251001",
+    complex: "claude-sonnet-4-6",
   }
   return models[complexity]
 }

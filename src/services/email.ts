@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { config } from '../config/env';
+import { logger } from '../config/logger';
 
 const transporter = nodemailer.createTransport({
   host: config.smtp.host,
@@ -14,7 +15,7 @@ export async function sendMagicLinkEmail(to: string, token: string): Promise<voi
   const magicLink = `${config.appUrl}/auth/verify?token=${token}`;
 
   if (process.env.NODE_ENV !== 'production') {
-    console.log(`[DEV] Magic link for ${to}: ${magicLink}`);
+    logger.info({ to, magicLink }, 'Magic link generated (dev)');
   }
 
   await transporter.sendMail({

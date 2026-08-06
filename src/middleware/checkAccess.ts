@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { getRemainingSeconds } from '../services/access';
+import { logger } from '../config/logger';
 
 export async function checkAccess(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (!req.user) {
@@ -22,7 +23,7 @@ export async function checkAccess(req: Request, res: Response, next: NextFunctio
 
     next();
   } catch (err) {
-    console.error('Error checking access:', err);
+    logger.error({ err }, 'Error checking access');
     res.status(500).json({ error: 'Failed to check access' });
   }
 }
