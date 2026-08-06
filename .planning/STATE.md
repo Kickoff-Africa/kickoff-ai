@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-08-06)
 
 ## Current Position
 
-Phase: 3 of 4 (AI Routing / Chat) — COMPLETE
-Plan: 2 of 2 in Phase 3 — COMPLETE
-Status: Phase 3 complete — ready for Phase 4
-Last activity: 2026-08-06 — Completed 03-02-PLAN.md (Claude service + message endpoint)
+Phase: 4 of 4 (Admin) — In progress
+Plan: 1 of ? in Phase 4 — In progress
+Status: In progress
+Last activity: 2026-08-06 — Completed 04-01-PLAN.md (Admin router with 5 endpoints)
 
-Progress: [████████░░] 75%
+Progress: [█████████░] 87%
 
 ## Performance Metrics
 
@@ -60,6 +60,8 @@ Recent decisions affecting current work:
 - Auto-title: set once from first message content (truncated to 50 chars); never re-titled
 - Usage tracking: wall-clock seconds of each request tracked via addUsage() after response prepared
 - messagesRouter mounted at /conversations; route is /:conversationId/messages with mergeParams: true
+- Admin routing: adminRouter.use(authenticate, requireAdmin) pattern — router-level blanket auth+authz
+- Admin bypass: admin routes omit ownership WHERE clause; LEFT JOIN LATERAL for current-window usage stats per user
 
 ### Pending Todos
 
@@ -71,6 +73,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-08-06
-Stopped at: Completed 03-02-PLAN.md (Claude service + message send endpoint — Phase 3 complete)
+Last session: 2026-08-06T21:24:16Z
+Stopped at: Completed 04-01-PLAN.md (Admin router — 5 endpoints, all gated by authenticate + requireAdmin)
 Resume file: None
