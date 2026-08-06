@@ -1,0 +1,1 @@
+ALTER TABLE access_windows ADD COLUMN IF NOT EXISTS extension_seconds INTEGER NOT NULL DEFAULT 0;
