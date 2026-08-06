@@ -76,10 +76,10 @@ Plans:
   2. Admin can view all conversations and the full message history for any user
   3. Admin can view all access extension requests with their current status (pending, approved, denied)
   4. Admin can promote any existing user to admin role
-**Plans**: TBD
+**Plans:** 1 plan
 
 Plans:
-- [ ] 04-01: Admin endpoints — user stats, conversation visibility, access request list, role promotion
+- [ ] 04-01-PLAN.md — Admin router with user stats, conversation visibility, extension request list, role promotion
 
 ## Progress
 
