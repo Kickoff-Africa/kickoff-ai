@@ -9,12 +9,12 @@ See: .planning/PROJECT.md (updated 2026-08-06)
 
 ## Current Position
 
-Phase: 2 of 4 (Access Control) — COMPLETE
-Plan: 2 of 2 in Phase 2 — COMPLETE
-Status: Phase 2 complete — ready for Phase 3
-Last activity: 2026-08-06 — Completed 02-02-PLAN.md (requireAdmin middleware, extension request routes)
+Phase: 3 of 4 (AI Routing / Chat) — In progress
+Plan: 1 of ? in Phase 3 — COMPLETE
+Status: Phase 3 in progress — 03-01 complete, 03-02 next
+Last activity: 2026-08-06 — Completed 03-01-PLAN.md (Anthropic SDK install, conversation CRUD endpoints)
 
-Progress: [█████░░░░░] 50%
+Progress: [██████░░░░] 60%
 
 ## Performance Metrics
 
@@ -29,11 +29,11 @@ Progress: [█████░░░░░] 50%
 |-------|-------|-------|----------|
 | 01-authentication | 2/2 | ~25 min | ~12 min |
 | 02-access-control | 2/2 | ~24 min | ~12 min |
-| 03-ai-routing | 0/? | — | — |
+| 03-ai-routing | 1/? | ~11 min | ~11 min |
 | 04-admin-ui | 0/? | — | — |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (~10 min), 01-02 (~15 min), 02-01 (~12 min), 02-02 (~12 min)
+- Last 5 plans: 01-01 (~10 min), 01-02 (~15 min), 02-01 (~12 min), 02-02 (~12 min), 03-01 (~11 min)
 - Trend: Consistent pace
 
 *Updated after each plan completion*
@@ -54,6 +54,8 @@ Recent decisions affecting current work:
 - Access windows: getOrCreateWindow uses 12-hour rolling window; extension stored as seconds in extension_seconds column
 - Admin gating: requireAdmin middleware is composable — always used after authenticate in route chains
 - Approve override: POST /:id/approve accepts its own `hours` body param (admin can grant different hours than requested)
+- Anthropic SDK: @anthropic-ai/sdk installed; config.anthropicApiKey exports the key via requireEnv
+- Conversations: ownership always verified with `WHERE id = $1 AND user_id = $2` before message access
 
 ### Pending Todos
 
@@ -66,5 +68,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-08-06
-Stopped at: Completed 02-02-PLAN.md (requireAdmin middleware, extension request lifecycle endpoints)
+Stopped at: Completed 03-01-PLAN.md (Anthropic SDK install, conversation CRUD endpoints)
 Resume file: None
