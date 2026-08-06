@@ -3,6 +3,7 @@ import { config } from './config/env';
 import { pool, query } from './config/database';
 import { authRouter } from './routes/auth';
 import { accessRouter } from './routes/access';
+import { extensionsRouter } from './routes/extensions';
 
 export const app = express();
 
@@ -14,6 +15,7 @@ app.get('/health', (_req, res) => {
 
 app.use('/auth', authRouter);
 app.use('/access', accessRouter);
+app.use('/extensions', extensionsRouter);
 
 async function start(): Promise<void> {
   try {
