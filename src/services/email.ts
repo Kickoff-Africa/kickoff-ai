@@ -1,15 +1,8 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { config } from '../config/env';
 import { logger } from '../config/logger';
 
-const transporter = nodemailer.createTransport({
-  host: config.smtp.host,
-  port: config.smtp.port,
-  auth: {
-    user: config.smtp.user,
-    pass: config.smtp.pass,
-  },
-});
+const resend = new Resend(config.resendApiKey);
 
 export async function sendMagicLinkEmail(to: string, token: string): Promise<void> {
   const magicLink = `${config.appUrl}/auth/verify?token=${token}`;
@@ -18,8 +11,8 @@ export async function sendMagicLinkEmail(to: string, token: string): Promise<voi
     logger.info({ to, magicLink }, 'Magic link generated (dev)');
   }
 
-  await transporter.sendMail({
-    from: config.smtp.from,
+  const { error } = await resend.emails.send({
+    from: config.emailFrom,
     to,
     subject: 'Your KickoffAI Login Link',
     html: `
@@ -30,4 +23,9 @@ export async function sendMagicLinkEmail(to: string, token: string): Promise<voi
       <p>If you did not request this link, you can safely ignore this email.</p>
     `,
   });
+
+  if (error) {
+    logger.error({ error, to }, 'Failed to send magic link email');
+    throw new Error(`Email delivery failed: ${error.message}`);
+  }
 }
