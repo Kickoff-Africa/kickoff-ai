@@ -16,7 +16,7 @@ export const config = {
   jwtSecret: requireEnv('JWT_SECRET'),
   jwtExpiry: process.env.JWT_EXPIRY ?? '24h',
   magicLinkExpiryMinutes: parseInt(process.env.MAGIC_LINK_EXPIRY_MINUTES ?? '15', 10),
-  resendApiKey: requireEnv('RESEND_API_KEY'),
+  useSendApiKey: requireEnv('USESEND_API_KEY'),
   emailFrom: process.env.EMAIL_FROM ?? 'noreply@kickoff.africa',
   appUrl: process.env.APP_URL ?? 'http://localhost:3000',
   adminEmail: requireEnv('ADMIN_EMAIL'),
