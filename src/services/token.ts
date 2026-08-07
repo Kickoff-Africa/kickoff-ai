@@ -1,6 +1,5 @@
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config/env';
 
 export function generateMagicToken(): string {
@@ -21,7 +20,7 @@ export function createJWT(
   email: string,
   role: string,
 ): { token: string; jti: string } {
-  const jti = uuidv4();
+  const jti = crypto.randomUUID();
   const payload: Omit<JWTPayload, 'iat' | 'exp'> = { sub: userId, email, role, jti };
   const token = jwt.sign(payload, config.jwtSecret, {
     expiresIn: config.jwtExpiry as jwt.SignOptions['expiresIn'],
