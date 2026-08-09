@@ -8,7 +8,7 @@ export async function sendMagicLinkEmail(to: string, token: string): Promise<voi
     logger.info({ to, magicLink }, 'Magic link generated (dev)');
   }
 
-  const response = await fetch('https://app.usesend.com/api/v1/emails', {
+  const response = await fetch(`${config.useSendBaseUrl}/v1/emails`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -25,6 +25,7 @@ export const config = {
   jwtExpiry: process.env.JWT_EXPIRY ?? '24h',
   magicLinkExpiryMinutes: parseInt(process.env.MAGIC_LINK_EXPIRY_MINUTES ?? '15', 10),
   useSendApiKey: requireEnv('USESEND_API_KEY'),
+  useSendBaseUrl: process.env.USESEND_BASE_URL ?? 'https://app.usesend.com/api',
   emailFrom: process.env.EMAIL_FROM ?? 'noreply@kickoff.africa',
   appUrl: requireUrl('APP_URL', 'http://localhost:3000'),
   corsOrigin: process.env.CORS_ORIGIN ?? '*',
