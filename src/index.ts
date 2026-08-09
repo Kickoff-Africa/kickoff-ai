@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import pinoHttp from 'pino-http';
 import swaggerUi from 'swagger-ui-express';
 import { config } from './config/env';
@@ -14,6 +15,12 @@ import { adminRouter } from './routes/admin';
 
 export const app = express();
 
+app.use(cors({
+  origin: config.corsOrigin === '*' ? '*' : config.corsOrigin.split(',').map(o => o.trim()),
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  credentials: config.corsOrigin !== '*',
+}));
 app.use(express.json());
 app.use(pinoHttp({ logger }));
 

@@ -19,6 +19,7 @@ export const config = {
   useSendApiKey: requireEnv('USESEND_API_KEY'),
   emailFrom: process.env.EMAIL_FROM ?? 'noreply@kickoff.africa',
   appUrl: process.env.APP_URL ?? 'http://localhost:3000',
+  corsOrigin: process.env.CORS_ORIGIN ?? '*',
   adminEmail: requireEnv('ADMIN_EMAIL'),
   anthropicApiKey: requireEnv('ANTHROPIC_API_KEY'),
 };

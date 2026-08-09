@@ -1,5 +1,15 @@
 import swaggerJsdoc from 'swagger-jsdoc';
 
+const isProd = process.env.NODE_ENV === 'production';
+const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
+
+const servers = isProd
+  ? [{ url: appUrl, description: 'Production' }]
+  : [
+      { url: 'http://localhost:3000', description: 'Local development' },
+      { url: appUrl, description: 'Production' },
+    ];
+
 const options: swaggerJsdoc.Options = {
   definition: {
     openapi: '3.0.0',
@@ -13,9 +23,7 @@ const options: swaggerJsdoc.Options = {
         email: 'work@kickoff.africa',
       },
     },
-    servers: [
-      { url: 'http://localhost:3000', description: 'Local development' },
-    ],
+    servers,
     components: {
       securitySchemes: {
         bearerAuth: {
