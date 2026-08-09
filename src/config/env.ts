@@ -10,6 +10,14 @@ function requireEnv(name: string): string {
   return value;
 }
 
+function requireUrl(name: string, fallback: string): string {
+  const value = process.env[name] ?? fallback;
+  if (!value.startsWith('http://') && !value.startsWith('https://')) {
+    throw new Error(`${name} must include the protocol (e.g. https://). Got: "${value}"`);
+  }
+  return value.replace(/\/$/, ''); // strip trailing slash
+}
+
 export const config = {
   port: parseInt(process.env.PORT ?? '3000', 10),
   databaseUrl: requireEnv('DATABASE_URL'),
@@ -18,7 +26,7 @@ export const config = {
   magicLinkExpiryMinutes: parseInt(process.env.MAGIC_LINK_EXPIRY_MINUTES ?? '15', 10),
   useSendApiKey: requireEnv('USESEND_API_KEY'),
   emailFrom: process.env.EMAIL_FROM ?? 'noreply@kickoff.africa',
-  appUrl: process.env.APP_URL ?? 'http://localhost:3000',
+  appUrl: requireUrl('APP_URL', 'http://localhost:3000'),
   corsOrigin: process.env.CORS_ORIGIN ?? '*',
   adminEmail: requireEnv('ADMIN_EMAIL'),
   anthropicApiKey: requireEnv('ANTHROPIC_API_KEY'),
