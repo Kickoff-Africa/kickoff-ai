@@ -15,10 +15,9 @@ import { adminRouter } from './routes/admin';
 export const app = express();
 
 const corsOptions: cors.CorsOptions = {
-  origin: config.corsOrigin === '*' ? '*' : config.corsOrigin.split(',').map(o => o.trim()),
+  origin: '*',
   allowedHeaders: ['Content-Type', 'Authorization'],
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-  credentials: config.corsOrigin !== '*',
   optionsSuccessStatus: 204,
 };
 
