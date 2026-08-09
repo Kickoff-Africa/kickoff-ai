@@ -75,7 +75,7 @@ export async function addUsage(userId: string, seconds: number): Promise<void> {
   const window = await getOrCreateWindow(userId);
   await query(
     `UPDATE access_windows SET seconds_used = seconds_used + $1 WHERE id = $2`,
-    [seconds, window.id],
+    [Math.ceil(seconds), window.id],
   );
 }
 
