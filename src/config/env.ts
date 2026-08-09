@@ -28,6 +28,7 @@ export const config = {
   useSendBaseUrl: process.env.USESEND_BASE_URL ?? 'https://app.usesend.com/api',
   emailFrom: process.env.EMAIL_FROM ?? 'noreply@kickoff.africa',
   appUrl: requireUrl('APP_URL', 'http://localhost:3000'),
+  frontendUrl: requireUrl('FRONTEND_URL', 'http://localhost:3000'),
   corsOrigin: process.env.CORS_ORIGIN ?? '*',
   allowedEmailDomain: process.env.ALLOWED_EMAIL_DOMAIN ?? null,
   adminEmail: requireEnv('ADMIN_EMAIL'),

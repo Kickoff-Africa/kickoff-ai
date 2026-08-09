@@ -260,7 +260,7 @@ export async function sendOTPEmail(to: string, code: string): Promise<void> {
 }
 
 export async function sendMagicLinkEmail(to: string, token: string): Promise<void> {
-  const magicLink = `${config.appUrl}/auth/verify?token=${token}`;
+  const magicLink = `${config.frontendUrl}/auth/verify?token=${token}`;
 
   if (process.env.NODE_ENV !== 'production') {
     logger.info({ to, magicLink }, 'Magic link generated (dev)');
