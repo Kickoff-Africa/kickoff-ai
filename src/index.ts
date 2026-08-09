@@ -14,12 +14,17 @@ import { adminRouter } from './routes/admin';
 
 export const app = express();
 
-app.use(cors({
+const corsOptions: cors.CorsOptions = {
   origin: config.corsOrigin === '*' ? '*' : config.corsOrigin.split(',').map(o => o.trim()),
   allowedHeaders: ['Content-Type', 'Authorization'],
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   credentials: config.corsOrigin !== '*',
-}));
+  optionsSuccessStatus: 204,
+};
+
+// Handle preflight for all routes
+app.options('*', cors(corsOptions));
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(pinoHttp({ logger }));
 
