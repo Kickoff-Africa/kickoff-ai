@@ -29,6 +29,7 @@ export const config = {
   emailFrom: process.env.EMAIL_FROM ?? 'noreply@kickoff.africa',
   appUrl: requireUrl('APP_URL', 'http://localhost:3000'),
   corsOrigin: process.env.CORS_ORIGIN ?? '*',
+  allowedEmailDomain: process.env.ALLOWED_EMAIL_DOMAIN ?? null,
   adminEmail: requireEnv('ADMIN_EMAIL'),
   anthropicApiKey: requireEnv('ANTHROPIC_API_KEY'),
 };

@@ -58,6 +58,12 @@ function parseExpiryToSeconds(expiry: string): number {
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Email domain not allowed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
  *       500:
  *         description: Internal server error
  *         content:
@@ -74,12 +80,18 @@ authRouter.post('/request-magic-link', async (req: Request, res: Response): Prom
       return;
     }
 
+    const normalizedEmail = email.trim().toLowerCase();
+    if (config.allowedEmailDomain && !normalizedEmail.endsWith(`@${config.allowedEmailDomain}`)) {
+      res.status(403).json({ error: `Only ${config.allowedEmailDomain} email addresses are allowed` });
+      return;
+    }
+
     const userResult = await query(
       `INSERT INTO users (email)
        VALUES ($1)
        ON CONFLICT (email) DO UPDATE SET updated_at = NOW()
        RETURNING id, email, role`,
-      [email.trim().toLowerCase()],
+      [normalizedEmail],
     );
     const user = userResult.rows[0] as { id: string; email: string; role: string };
 
