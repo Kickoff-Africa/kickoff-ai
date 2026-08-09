@@ -6,6 +6,12 @@ export function generateMagicToken(): string {
   return crypto.randomBytes(32).toString('hex');
 }
 
+export function generateOTP(): string {
+  // Cryptographically random 6-digit code (000000–999999)
+  const value = crypto.randomInt(0, 1_000_000);
+  return value.toString().padStart(6, '0');
+}
+
 export interface JWTPayload {
   sub: string;
   email: string;

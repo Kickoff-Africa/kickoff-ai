@@ -2,8 +2,8 @@ import { Router, Request, Response } from 'express';
 import { query } from '../config/database';
 import { config } from '../config/env';
 import { logger } from '../config/logger';
-import { generateMagicToken, createJWT } from '../services/token';
-import { sendMagicLinkEmail } from '../services/email';
+import { generateMagicToken, generateOTP, createJWT } from '../services/token';
+import { sendMagicLinkEmail, sendOTPEmail } from '../services/email';
 import { authenticate } from '../middleware/authenticate';
 
 export const authRouter = Router();
@@ -95,18 +95,29 @@ authRouter.post('/request-magic-link', async (req: Request, res: Response): Prom
     );
     const user = userResult.rows[0] as { id: string; email: string; role: string };
 
-    const token = generateMagicToken();
-
-    await query(
-      `INSERT INTO magic_link_tokens (user_id, token, expires_at)
-       VALUES ($1, $2, NOW() + ($3 || ' minutes')::INTERVAL)`,
-      [user.id, token, config.magicLinkExpiryMinutes.toString()],
-    );
-
-    await sendMagicLinkEmail(user.email, token);
-
-    logger.info({ userId: user.id, email: user.email }, 'Magic link sent');
-    res.status(200).json({ message: 'Magic link sent to your email' });
+    if (user.role === 'admin') {
+      // Admins receive a 6-digit OTP instead of a clickable link
+      const code = generateOTP();
+      await query(
+        `INSERT INTO magic_link_tokens (user_id, token, expires_at)
+         VALUES ($1, $2, NOW() + ($3 || ' minutes')::INTERVAL)`,
+        [user.id, code, config.magicLinkExpiryMinutes.toString()],
+      );
+      await sendOTPEmail(user.email, code);
+      logger.info({ userId: user.id, email: user.email }, 'Admin OTP sent');
+      res.status(200).json({ message: 'Login code sent to your email', flow: 'otp' });
+    } else {
+      // Regular users receive a magic link
+      const token = generateMagicToken();
+      await query(
+        `INSERT INTO magic_link_tokens (user_id, token, expires_at)
+         VALUES ($1, $2, NOW() + ($3 || ' minutes')::INTERVAL)`,
+        [user.id, token, config.magicLinkExpiryMinutes.toString()],
+      );
+      await sendMagicLinkEmail(user.email, token);
+      logger.info({ userId: user.id, email: user.email }, 'Magic link sent');
+      res.status(200).json({ message: 'Magic link sent to your email', flow: 'magic_link' });
+    }
   } catch (err) {
     logger.error({ err }, 'Error in /auth/request-magic-link');
     res.status(500).json({ error: 'Internal server error' });
@@ -206,6 +217,131 @@ authRouter.get('/verify', async (req: Request, res: Response): Promise<void> => 
     });
   } catch (err) {
     logger.error({ err }, 'Error in /auth/verify');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * @openapi
+ * /auth/verify-otp:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Verify an admin OTP code
+ *     description: Validates the 6-digit code sent to an admin's email and returns a JWT.
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, code]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               code:
+ *                 type: string
+ *                 example: "482910"
+ *     responses:
+ *       200:
+ *         description: Authentication successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         description: Missing fields, invalid code, or expired code
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Email is not an admin account
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+authRouter.post('/verify-otp', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, code } = req.body as { email?: string; code?: string };
+
+    if (!email || !code) {
+      res.status(400).json({ error: 'Email and code are required' });
+      return;
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedCode = code.trim();
+
+    // Look up the user and confirm they are an admin
+    const userResult = await query(
+      `SELECT id, email, role FROM users WHERE email = $1`,
+      [normalizedEmail],
+    );
+
+    if (userResult.rows.length === 0) {
+      res.status(400).json({ error: 'Invalid or expired code' });
+      return;
+    }
+
+    const user = userResult.rows[0] as { id: string; email: string; role: string };
+
+    if (user.role !== 'admin') {
+      res.status(403).json({ error: 'OTP login is only available for admin accounts' });
+      return;
+    }
+
+    // Validate the OTP
+    const tokenResult = await query(
+      `SELECT id, user_id
+       FROM magic_link_tokens
+       WHERE token = $1
+         AND user_id = $2
+         AND used_at IS NULL
+         AND expires_at > NOW()`,
+      [normalizedCode, user.id],
+    );
+
+    if (tokenResult.rows.length === 0) {
+      res.status(400).json({ error: 'Invalid or expired code' });
+      return;
+    }
+
+    // Mark code as used
+    await query(
+      `UPDATE magic_link_tokens SET used_at = NOW() WHERE id = $1`,
+      [tokenResult.rows[0].id],
+    );
+
+    const { token: jwtToken, jti } = createJWT(user.id, user.email, user.role);
+
+    const expirySeconds = parseExpiryToSeconds(config.jwtExpiry);
+    await query(
+      `INSERT INTO user_sessions (user_id, jwt_jti, expires_at)
+       VALUES ($1, $2, NOW() + ($3 || ' seconds')::INTERVAL)`,
+      [user.id, jti, expirySeconds.toString()],
+    );
+
+    logger.info({ userId: user.id, email: user.email }, 'Admin authenticated via OTP');
+    res.status(200).json({
+      token: jwtToken,
+      user: { id: user.id, email: user.email, role: user.role },
+    });
+  } catch (err) {
+    logger.error({ err }, 'Error in /auth/verify-otp');
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -118,6 +118,147 @@ function buildMagicLinkEmail(magicLink: string, expiryMinutes: number): string {
 </html>`;
 }
 
+function buildOTPEmail(code: string, expiryMinutes: number): string {
+  const digits = code.split('');
+  const digitBoxes = digits.map(d =>
+    `<td style="width:44px;height:56px;text-align:center;vertical-align:middle;background-color:#f0f4ff;border:1px solid #dce6ff;border-radius:8px;font-size:28px;font-weight:700;color:${KICKOFF_BLUE};font-family:monospace;">${d}</td><td style="width:6px;"></td>`
+  ).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Your KickoffAI Admin Code</title>
+</head>
+<body style="margin:0;padding:0;background-color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+
+          <!-- Header -->
+          <tr>
+            <td align="center" style="padding-bottom:24px;">
+              <table cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="background-color:${KICKOFF_BLUE};border-radius:12px;padding:10px 20px;">
+                    <span style="color:#ffffff;font-size:15px;font-weight:700;letter-spacing:0.5px;">⚡ KickoffAI</span>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td style="background-color:#ffffff;border-radius:16px;border:1px solid #ebebeb;overflow:hidden;">
+
+              <!-- Blue accent bar -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="background:linear-gradient(135deg,${KICKOFF_BLUE} 0%,#3a7eff 100%);height:4px;font-size:0;line-height:0;">&nbsp;</td>
+                </tr>
+              </table>
+
+              <!-- Body -->
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="padding:40px 40px 32px;">
+
+                    <!-- Shield icon -->
+                    <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px;">
+                      <tr>
+                        <td style="background-color:#eef3ff;border-radius:12px;width:52px;height:52px;text-align:center;vertical-align:middle;">
+                          <span style="font-size:26px;line-height:52px;">🛡️</span>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#0d0d0d;line-height:1.3;">
+                      Admin login code
+                    </h1>
+                    <p style="margin:0 0 28px;font-size:15px;color:#6b7280;line-height:1.6;">
+                      Enter this code in the KickoffAI admin login screen.
+                    </p>
+
+                    <!-- OTP digits -->
+                    <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:28px;">
+                      <tr>
+                        ${digitBoxes}
+                      </tr>
+                    </table>
+
+                    <!-- Expiry notice -->
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px;">
+                      <tr>
+                        <td style="background-color:#f8f9ff;border:1px solid #e0e8ff;border-radius:8px;padding:12px 16px;">
+                          <p style="margin:0;font-size:13px;color:#4b5563;line-height:1.5;">
+                            ⏱ This code expires in <strong>${expiryMinutes} minutes</strong> and can only be used once.
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.6;">
+                      If you did not request this code, please ignore this email and ensure your account is secure.
+                    </p>
+
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:24px 0 0;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;">
+                © ${new Date().getFullYear()} Kickoff Africa · Internal AI Platform
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+export async function sendOTPEmail(to: string, code: string): Promise<void> {
+  if (process.env.NODE_ENV !== 'production') {
+    logger.info({ to, code }, 'Admin OTP generated (dev)');
+  }
+
+  const html = buildOTPEmail(code, config.magicLinkExpiryMinutes);
+
+  const response = await fetch(`${config.useSendBaseUrl}/v1/emails`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${config.useSendApiKey}`,
+    },
+    body: JSON.stringify({
+      from: config.emailFrom,
+      to,
+      subject: 'Your KickoffAI Admin Login Code',
+      html,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    logger.error({ status: response.status, body, to }, 'Failed to send OTP email');
+    throw new Error(`Email delivery failed: ${response.status} ${body}`);
+  }
+
+  const { emailId } = await response.json() as { emailId: string };
+  logger.info({ emailId, to }, 'Admin OTP email sent');
+}
+
 export async function sendMagicLinkEmail(to: string, token: string): Promise<void> {
   const magicLink = `${config.appUrl}/auth/verify?token=${token}`;
 
