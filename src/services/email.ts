@@ -11,8 +11,8 @@ function buildMagicLinkEmail(magicLink: string, expiryMinutes: number): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Your KickoffAI Login Link</title>
 </head>
-<body style="margin:0;padding:0;background-color:#f4f6fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f6fb;padding:40px 16px;">
+<body style="margin:0;padding:0;background-color:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;padding:40px 16px;">
     <tr>
       <td align="center">
         <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
@@ -32,7 +32,7 @@ function buildMagicLinkEmail(magicLink: string, expiryMinutes: number): string {
 
           <!-- Card -->
           <tr>
-            <td style="background-color:#ffffff;border-radius:16px;box-shadow:0 2px 12px rgba(0,0,0,0.07);overflow:hidden;">
+            <td style="background-color:#ffffff;border-radius:16px;border:1px solid #ebebeb;overflow:hidden;">
 
               <!-- Blue accent bar -->
               <table width="100%" cellpadding="0" cellspacing="0" border="0">
