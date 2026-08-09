@@ -1,14 +1,8 @@
 import swaggerJsdoc from 'swagger-jsdoc';
 
-const isProd = process.env.NODE_ENV === 'production';
 const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
 
-const servers = isProd
-  ? [{ url: appUrl, description: 'Production' }]
-  : [
-      { url: 'http://localhost:3000', description: 'Local development' },
-      { url: appUrl, description: 'Production' },
-    ];
+const servers = [{ url: appUrl, description: appUrl.includes('localhost') ? 'Local development' : 'Production' }];
 
 const options: swaggerJsdoc.Options = {
   definition: {
