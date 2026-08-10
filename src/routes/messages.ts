@@ -3,7 +3,8 @@ import { query } from '../config/database';
 import { logger } from '../config/logger';
 import { authenticate } from '../middleware/authenticate';
 import { checkAccess } from '../middleware/checkAccess';
-import { classifyComplexity, getModelForComplexity, chat } from '../services/claude';
+import { config } from '../config/env';
+import { classifyComplexity, ollamaChat } from '../services/claude';
 import { addUsage } from '../services/access';
 
 export const messagesRouter = Router({ mergeParams: true });
@@ -136,11 +137,11 @@ messagesRouter.post('/:conversationId/messages', authenticate, checkAccess, asyn
     const historyRows = historyResult.rows as Array<{ role: 'user' | 'assistant'; content: string }>;
 
     const complexity = await classifyComplexity(content);
-    const model = getModelForComplexity(complexity);
+    const model = config.ollamaModel;
 
-    logger.debug({ conversationId, complexity, model }, 'Message classified and routed');
+    logger.debug({ conversationId, complexity, model }, 'Message classified, routing to Ollama');
 
-    const { content: assistantContent, tokensUsed } = await chat(historyRows, model);
+    const { content: assistantContent, tokensUsed } = await ollamaChat(historyRows);
 
     const assistantResult = await query(
       `INSERT INTO messages (conversation_id, role, content, model_used, tokens_used)

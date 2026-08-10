@@ -15,25 +15,31 @@ export async function classifyComplexity(message: string): Promise<"simple" | "m
   return 'moderate'  // safe default
 }
 
-export function getModelForComplexity(complexity: "simple" | "moderate" | "complex"): string {
-  const models = {
-    simple: "claude-haiku-4-5-20251001",
-    moderate: "claude-haiku-4-5-20251001",
-    complex: "claude-sonnet-4-6",
-  }
-  return models[complexity]
-}
-
-export async function chat(
-  messages: Array<{ role: "user" | "assistant"; content: string }>,
-  model: string
+export async function ollamaChat(
+  messages: Array<{ role: "user" | "assistant"; content: string }>
 ): Promise<{ content: string; tokensUsed: number }> {
-  const response = await anthropic.messages.create({
-    model,
-    max_tokens: 4096,
-    messages
+  const response = await fetch(`${config.ollamaBaseUrl}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: config.ollamaModel,
+      messages,
+      stream: false,
+    }),
   })
-  const content = response.content[0].type === 'text' ? response.content[0].text : ''
-  const tokensUsed = response.usage.input_tokens + response.usage.output_tokens
+
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(`Ollama request failed: ${response.status} ${body}`)
+  }
+
+  const data = await response.json() as {
+    message: { role: string; content: string }
+    prompt_eval_count?: number
+    eval_count?: number
+  }
+
+  const content = data.message.content
+  const tokensUsed = (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0)
   return { content, tokensUsed }
 }
