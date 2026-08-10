@@ -16,16 +16,24 @@ export async function classifyComplexity(message: string): Promise<"simple" | "m
 }
 
 export async function ollamaChat(
-  messages: Array<{ role: "user" | "assistant"; content: string }>
-): Promise<{ content: string; tokensUsed: number }> {
+  messages: Array<{ role: "user" | "assistant"; content: string }>,
+  options?: { images?: string[] }  // base64-encoded images attached to the last user message
+): Promise<{ content: string; tokensUsed: number; modelUsed: string }> {
+  const isVision = !!(options?.images?.length)
+  const model = isVision ? config.ollamaVisionModel : config.ollamaModel
+
+  // Attach images to the last user message when doing vision inference
+  const ollamaMessages = messages.map((msg, i) => {
+    if (isVision && i === messages.length - 1 && msg.role === 'user') {
+      return { ...msg, images: options!.images }
+    }
+    return msg
+  })
+
   const response = await fetch(`${config.ollamaBaseUrl}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: config.ollamaModel,
-      messages,
-      stream: false,
-    }),
+    body: JSON.stringify({ model, messages: ollamaMessages, stream: false }),
   })
 
   if (!response.ok) {
@@ -41,5 +49,5 @@ export async function ollamaChat(
 
   const content = data.message.content
   const tokensUsed = (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0)
-  return { content, tokensUsed }
+  return { content, tokensUsed, modelUsed: model }
 }

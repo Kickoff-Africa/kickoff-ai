@@ -313,10 +313,10 @@ adminRouter.get('/extensions', async (req: Request, res: Response): Promise<void
         r.user_id,
         u.email AS user_email,
         r.requested_hours,
-        r.granted_hours,
         r.status,
-        r.created_at,
-        r.updated_at
+        r.reviewed_by,
+        r.reviewed_at,
+        r.created_at
       FROM access_extension_requests r
       JOIN users u ON u.id = r.user_id
       WHERE ($1::text IS NULL OR r.status = $1)
@@ -388,6 +388,98 @@ adminRouter.get('/extensions', async (req: Request, res: Response): Promise<void
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
+/**
+ * @openapi
+ * /admin/users/{userId}/demote:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Demote an admin to a regular user
+ *     description: Sets an admin's role to user. Cannot be used on your own account. Admin only.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: User demoted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *       400:
+ *         description: Cannot change your own role, or user is not an admin
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       403:
+ *         description: Admin access required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: User not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+adminRouter.patch('/users/:userId/demote', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { userId } = req.params;
+
+    if (userId === req.user!.id) {
+      res.status(400).json({ error: 'Cannot change your own role' });
+      return;
+    }
+
+    // Fetch current role first to give a clear error if already a regular user
+    const existing = await query(`SELECT id, email, role FROM users WHERE id = $1`, [userId]);
+
+    if (existing.rows.length === 0) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    if (existing.rows[0].role !== 'admin') {
+      res.status(400).json({ error: 'User is not an admin' });
+      return;
+    }
+
+    const result = await query(
+      `UPDATE users SET role = 'user' WHERE id = $1 RETURNING id, email, role`,
+      [userId],
+    );
+
+    logger.info({ demotedUserId: userId, byAdminId: req.user!.id }, 'Admin demoted to user');
+    res.status(200).json({ user: result.rows[0] });
+  } catch (err) {
+    logger.error({ err, userId: req.params.userId }, 'PATCH /admin/users/:userId/demote error');
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 adminRouter.patch('/users/:userId/promote', async (req: Request, res: Response): Promise<void> => {
   try {
     const { userId } = req.params;

@@ -69,10 +69,10 @@ const options: swaggerJsdoc.Options = {
             id: { type: 'string', format: 'uuid' },
             user_id: { type: 'string', format: 'uuid' },
             requested_hours: { type: 'integer', enum: [1, 2, 3] },
-            granted_hours: { type: 'integer', nullable: true },
             status: { type: 'string', enum: ['pending', 'approved', 'denied'] },
+            reviewed_by: { type: 'string', format: 'uuid', nullable: true },
+            reviewed_at: { type: 'string', format: 'date-time', nullable: true },
             created_at: { type: 'string', format: 'date-time' },
-            updated_at: { type: 'string', format: 'date-time' },
           },
         },
         AccessStatus: {
