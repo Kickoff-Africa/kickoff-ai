@@ -17,6 +17,12 @@ export const app = express();
 const corsOptions: cors.CorsOptions = {
   origin: '*',
   allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: [
+    'X-Access-Seconds-Remaining',
+    'X-Access-Seconds-Used',
+    'X-Access-Total-Allowed',
+    'X-Access-Window-Expires-At',
+  ],
   methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   optionsSuccessStatus: 204,
 };

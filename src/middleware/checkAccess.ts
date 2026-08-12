@@ -11,6 +11,12 @@ export async function checkAccess(req: Request, res: Response, next: NextFunctio
   try {
     const result = await getRemainingSeconds(req.user.id);
 
+    // Attach access state to the response — frontend can read these after every request
+    res.setHeader('X-Access-Seconds-Remaining', result.secondsRemaining);
+    res.setHeader('X-Access-Seconds-Used', result.secondsUsed);
+    res.setHeader('X-Access-Total-Allowed', result.totalAllowed);
+    res.setHeader('X-Access-Window-Expires-At', result.windowExpiresAt.toISOString());
+
     if (result.secondsRemaining <= 0) {
       res.status(429).json({
         error: 'Access time exhausted',

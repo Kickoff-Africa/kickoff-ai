@@ -6,7 +6,7 @@ import { authenticate } from '../middleware/authenticate';
 import { checkAccess } from '../middleware/checkAccess';
 import { classifyComplexity, getModelForComplexity, chat } from '../services/claude';
 import { processFile, buildMessageContent } from '../services/fileProcessor';
-import { addUsage } from '../services/access';
+import { addUsage, getRemainingSeconds } from '../services/access';
 
 export const messagesRouter = Router({ mergeParams: true });
 
@@ -231,6 +231,13 @@ messagesRouter.post(
 
       const elapsedSeconds = (Date.now() - startTime) / 1000;
       await addUsage(userId, elapsedSeconds);
+
+      // Refresh access headers now that usage has been recorded
+      const accessState = await getRemainingSeconds(userId);
+      res.setHeader('X-Access-Seconds-Remaining', accessState.secondsRemaining);
+      res.setHeader('X-Access-Seconds-Used', accessState.secondsUsed);
+      res.setHeader('X-Access-Total-Allowed', accessState.totalAllowed);
+      res.setHeader('X-Access-Window-Expires-At', accessState.windowExpiresAt.toISOString());
 
       logger.info(
         { userId, conversationId, model: modelUsed, complexity, tokensUsed, elapsedSeconds },
