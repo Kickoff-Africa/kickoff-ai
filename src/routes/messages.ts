@@ -24,20 +24,84 @@ const upload = multer({
  *     description: |
  *       Sends a user message within a conversation and returns the AI response.
  *
- *       Accepts both plain JSON (`content` string) and `multipart/form-data` with an
- *       optional `file` attachment.
+ *       ## Sending a plain text message
  *
- *       **File support:**
- *       - **Images** (jpeg, png, gif, webp) → routed to `llama3.2-vision` for visual analysis
- *       - **PDFs** → text extracted and prepended to the prompt; handled by `llama3.1:70b`
- *       - **Text files** (.txt, .md, .csv, .json, etc.) → content injected as context; handled by `llama3.1:70b`
+ *       Use `application/json` with a `content` string:
  *
- *       **Complexity classification:** Every message is classified by Claude Haiku
- *       (simple / moderate / complex) and stored alongside the response for analytics.
+ *       ```js
+ *       fetch(`/conversations/${id}/messages`, {
+ *         method: 'POST',
+ *         headers: {
+ *           'Content-Type': 'application/json',
+ *           'Authorization': `Bearer ${token}`,
+ *         },
+ *         body: JSON.stringify({ content: 'What is the capital of France?' }),
+ *       })
+ *       ```
  *
- *       **Usage tracking:** Wall-clock time for the request is deducted from the user's access window.
+ *       ## Sending a file or image
  *
- *       **Auto-titling:** The conversation title is set automatically from the first 50 characters of the first message.
+ *       Use `multipart/form-data`. Include both `content` (required, the user's prompt) and
+ *       `file` (the attachment). **Do not set `Content-Type` manually** — the browser sets it
+ *       automatically with the correct boundary when you pass a `FormData` object.
+ *
+ *       ```js
+ *       const form = new FormData()
+ *       form.append('content', 'What is in this image?')
+ *       form.append('file', fileInput.files[0])   // File object from <input type="file">
+ *
+ *       fetch(`/conversations/${id}/messages`, {
+ *         method: 'POST',
+ *         headers: { 'Authorization': `Bearer ${token}` },
+ *         body: form,
+ *       })
+ *       ```
+ *
+ *       ## Supported file types
+ *
+ *       | Type | Accepted formats | How it works |
+ *       |------|-----------------|--------------|
+ *       | **Image** | `image/jpeg`, `image/png`, `image/gif`, `image/webp` | Sent to Claude Sonnet with vision capability. The model sees the actual image. |
+ *       | **PDF** | `application/pdf` | Text is extracted from the PDF and prepended to the prompt as context. |
+ *       | **Text** | `text/plain`, `text/csv`, `text/html`, `.md`, `.json`, `.yaml`, `.ts`, `.js`, `.py`, `.sh`, `.log`, `.xml` | File content is injected as context before the user's prompt. |
+ *
+ *       Maximum file size: **20 MB**
+ *
+ *       Unsupported file types return a `400` error.
+ *
+ *       ## Model routing
+ *
+ *       | Condition | Model used |
+ *       |-----------|-----------|
+ *       | Image attached | `claude-sonnet-4-6` (vision) |
+ *       | Complex message (no image) | `claude-sonnet-4-6` |
+ *       | Simple or moderate message (no image) | `claude-haiku-4-5-20251001` |
+ *
+ *       Complexity is classified by Claude Haiku before routing and is returned in the response.
+ *
+ *       ## Access window headers
+ *
+ *       Every response includes headers showing the user's remaining access time.
+ *       Read these after every request to keep the UI in sync without polling `/access/status`:
+ *
+ *       ```
+ *       X-Access-Seconds-Remaining: 3241
+ *       X-Access-Seconds-Used:       359
+ *       X-Access-Total-Allowed:      3600
+ *       X-Access-Window-Expires-At:  2026-08-12T21:00:00.000Z
+ *       ```
+ *
+ *       ```js
+ *       const remaining = parseInt(response.headers.get('X-Access-Seconds-Remaining'))
+ *       ```
+ *
+ *       **Note:** Headers are set after usage is deducted, so they always reflect the accurate
+ *       remaining time for that request.
+ *
+ *       ## Auto-titling
+ *
+ *       If a conversation has no title yet, it is automatically set from the first 50 characters
+ *       of the first user message.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -65,13 +129,36 @@ const upload = multer({
  *             properties:
  *               content:
  *                 type: string
- *                 example: Summarise this document
+ *                 example: What is in this image?
+ *                 description: The user's prompt. Always required, even when attaching a file.
  *               file:
  *                 type: string
  *                 format: binary
+ *                 description: |
+ *                   Optional file attachment. Supported: images (jpeg, png, gif, webp),
+ *                   PDFs, and text files (.txt, .md, .csv, .json, .yaml, .ts, .js, .py, etc.).
+ *                   Maximum 20 MB.
  *     responses:
  *       201:
  *         description: Assistant response
+ *         headers:
+ *           X-Access-Seconds-Remaining:
+ *             schema:
+ *               type: integer
+ *             description: Seconds remaining in the user's current 1-hour access window (after this request's usage is deducted).
+ *           X-Access-Seconds-Used:
+ *             schema:
+ *               type: integer
+ *             description: Total seconds consumed in the current access window.
+ *           X-Access-Total-Allowed:
+ *             schema:
+ *               type: integer
+ *             description: Total seconds allowed in the current window (base 3600 + any granted extensions).
+ *           X-Access-Window-Expires-At:
+ *             schema:
+ *               type: string
+ *               format: date-time
+ *             description: ISO 8601 timestamp when the current access window expires.
  *         content:
  *           application/json:
  *             schema:
@@ -81,13 +168,15 @@ const upload = multer({
  *                   $ref: '#/components/schemas/Message'
  *                 model_used:
  *                   type: string
- *                   example: llama3.1:70b
+ *                   example: claude-haiku-4-5-20251001
+ *                   description: The Claude model that generated the response.
  *                 tokens_used:
  *                   type: integer
  *                   example: 142
  *                 complexity:
  *                   type: string
  *                   enum: [simple, moderate, complex]
+ *                   description: Complexity classification of the user's message, used for model routing.
  *       400:
  *         description: Message content missing, file too large, or unsupported file type
  *         content:
