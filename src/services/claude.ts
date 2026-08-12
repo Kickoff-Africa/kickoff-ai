@@ -1,7 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { config } from '../config/env'
 
-const anthropic = new Anthropic({ apiKey: config.anthropicApiKey })
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
 export async function classifyComplexity(message: string): Promise<"simple" | "moderate" | "complex"> {
   const response = await anthropic.messages.create({
@@ -12,42 +11,52 @@ export async function classifyComplexity(message: string): Promise<"simple" | "m
   })
   const text = response.content[0].type === 'text' ? response.content[0].text.trim().toLowerCase() : 'moderate'
   if (text === 'simple' || text === 'moderate' || text === 'complex') return text
-  return 'moderate'  // safe default
+  return 'moderate'
 }
 
-export async function ollamaChat(
+export function getModelForComplexity(complexity: "simple" | "moderate" | "complex"): string {
+  return complexity === 'complex' ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001'
+}
+
+export async function chat(
   messages: Array<{ role: "user" | "assistant"; content: string }>,
-  options?: { images?: string[] }  // base64-encoded images attached to the last user message
-): Promise<{ content: string; tokensUsed: number; modelUsed: string }> {
-  const isVision = !!(options?.images?.length)
-  const model = isVision ? config.ollamaVisionModel : config.ollamaModel
+  model: string,
+  options?: { imageBase64?: string; imageMimeType?: string }
+): Promise<{ content: string; tokensUsed: number }> {
+  // Build the last user message — with an image block if provided
+  const lastMsg = messages[messages.length - 1]
+  const history = messages.slice(0, -1)
 
-  // Attach images to the last user message when doing vision inference
-  const ollamaMessages = messages.map((msg, i) => {
-    if (isVision && i === messages.length - 1 && msg.role === 'user') {
-      return { ...msg, images: options!.images }
-    }
-    return msg
-  })
+  let lastContent: Anthropic.MessageParam['content']
 
-  const response = await fetch(`${config.ollamaBaseUrl}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, messages: ollamaMessages, stream: false }),
-  })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(`Ollama request failed: ${response.status} ${body}`)
+  if (options?.imageBase64 && lastMsg.role === 'user') {
+    lastContent = [
+      {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: options.imageMimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+          data: options.imageBase64,
+        },
+      },
+      { type: 'text', text: lastMsg.content },
+    ]
+  } else {
+    lastContent = lastMsg.content
   }
 
-  const data = await response.json() as {
-    message: { role: string; content: string }
-    prompt_eval_count?: number
-    eval_count?: number
-  }
+  const anthropicMessages: Anthropic.MessageParam[] = [
+    ...history.map(m => ({ role: m.role, content: m.content })),
+    { role: lastMsg.role, content: lastContent },
+  ]
 
-  const content = data.message.content
-  const tokensUsed = (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0)
-  return { content, tokensUsed, modelUsed: model }
+  const response = await anthropic.messages.create({
+    model,
+    max_tokens: 4096,
+    messages: anthropicMessages,
+  })
+
+  const content = response.content[0].type === 'text' ? response.content[0].text : ''
+  const tokensUsed = response.usage.input_tokens + response.usage.output_tokens
+  return { content, tokensUsed }
 }

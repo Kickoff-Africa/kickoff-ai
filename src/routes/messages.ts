@@ -4,8 +4,7 @@ import { query } from '../config/database';
 import { logger } from '../config/logger';
 import { authenticate } from '../middleware/authenticate';
 import { checkAccess } from '../middleware/checkAccess';
-import { config } from '../config/env';
-import { classifyComplexity, ollamaChat } from '../services/claude';
+import { classifyComplexity, getModelForComplexity, chat } from '../services/claude';
 import { processFile, buildMessageContent } from '../services/fileProcessor';
 import { addUsage } from '../services/access';
 
@@ -190,23 +189,23 @@ messagesRouter.post(
 
       const historyRows = historyResult.rows as Array<{ role: 'user' | 'assistant'; content: string }>;
 
-      // Complexity classification (analytics / logging only — Ollama handles everything)
       const complexity = await classifyComplexity(content);
-
-      // Vision model for images, standard model for everything else
-      const ollamaOptions = attachment?.type === 'image' && attachment.base64
-        ? { images: [attachment.base64] }
-        : undefined;
+      // Images always go to Sonnet (vision support); otherwise route by complexity
+      const model = (attachment?.type === 'image')
+        ? 'claude-sonnet-4-6'
+        : getModelForComplexity(complexity);
 
       logger.debug(
-        { conversationId, complexity, vision: !!ollamaOptions },
-        'Routing to Ollama',
+        { conversationId, complexity, model, vision: attachment?.type === 'image' },
+        'Message classified and routed',
       );
 
-      const { content: assistantContent, tokensUsed, modelUsed } = await ollamaChat(
-        historyRows,
-        ollamaOptions,
-      );
+      const chatOptions = attachment?.type === 'image' && attachment.base64
+        ? { imageBase64: attachment.base64, imageMimeType: attachment.mimeType ?? 'image/jpeg' }
+        : undefined;
+
+      const { content: assistantContent, tokensUsed } = await chat(historyRows, model, chatOptions);
+      const modelUsed = model;
 
       const assistantResult = await query(
         `INSERT INTO messages (conversation_id, role, content, model_used, tokens_used)

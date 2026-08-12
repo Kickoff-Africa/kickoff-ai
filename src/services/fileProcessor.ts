@@ -27,6 +27,7 @@ function detectType(mimetype: string, originalname: string): AttachmentType {
 export interface ProcessedFile {
   type: AttachmentType
   originalname: string
+  mimeType?: string
   /** Base64 image data — set for images only */
   base64?: string
   /** Extracted plain text — set for pdf and text files */
@@ -41,7 +42,7 @@ export async function processFile(
   const type = detectType(mimetype, originalname)
 
   if (type === 'image') {
-    return { type, originalname, base64: buffer.toString('base64') }
+    return { type, originalname, mimeType: mimetype, base64: buffer.toString('base64') }
   }
 
   if (type === 'text') {
