@@ -50,9 +50,10 @@ export async function processFile(
   }
 
   if (type === 'pdf') {
-    // pdf-parse ships CJS with ambiguous types; cast through unknown to get a callable
-    const mod = await import('pdf-parse')
-    const pdfParse = (typeof mod.default === 'function' ? mod.default : mod) as unknown as (buf: Buffer) => Promise<{ text: string }>
+    // Import the raw library path to bypass the pdfjs-dist browser bundle
+    // which requires DOMMatrix, ImageData, Path2D (browser-only globals)
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (buf: Buffer) => Promise<{ text: string }>
     const data = await pdfParse(buffer)
     return { type, originalname, text: data.text.trim() }
   }
