@@ -6,6 +6,7 @@ import { authenticate } from '../middleware/authenticate';
 import { checkAccess } from '../middleware/checkAccess';
 import { classifyComplexity, getModelForComplexity, chat } from '../services/claude';
 import { processFile, buildMessageContent } from '../services/fileProcessor';
+import { uploadToCloudinary } from '../services/cloudinary';
 import { addUsage, getRemainingSeconds } from '../services/access';
 
 export const messagesRouter = Router({ mergeParams: true });
@@ -68,6 +69,16 @@ const upload = multer({
  *       Maximum file size: **20 MB**
  *
  *       Unsupported file types return a `400` error.
+ *
+ *       ## File storage
+ *
+ *       All attachments are uploaded to Cloudinary before the AI processes them.
+ *       The returned `message` object includes `attachment_url` (a permanent Cloudinary URL),
+ *       `attachment_type`, and `attachment_name` so the frontend can render a preview or download link.
+ *
+ *       When fetching past messages via `GET /conversations/{id}`, these fields are returned on
+ *       every user message that had an attachment. The `content` field always contains the user's
+ *       original prompt text — not the embedded file content that was sent to the AI.
  *
  *       ## Model routing
  *
@@ -166,6 +177,35 @@ const upload = multer({
  *               properties:
  *                 message:
  *                   $ref: '#/components/schemas/Message'
+ *                 user_message:
+ *                   type: object
+ *                   description: The saved user message record, including attachment metadata.
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     role:
+ *                       type: string
+ *                       example: user
+ *                     content:
+ *                       type: string
+ *                       description: The user's original prompt text.
+ *                     attachment_url:
+ *                       type: string
+ *                       nullable: true
+ *                       description: Permanent Cloudinary URL of the uploaded file.
+ *                       example: https://res.cloudinary.com/kickoff/image/upload/v1/kickoff-ai/attachments/photo.jpg
+ *                     attachment_type:
+ *                       type: string
+ *                       nullable: true
+ *                       enum: [image, pdf, text, null]
+ *                     attachment_name:
+ *                       type: string
+ *                       nullable: true
+ *                       example: q3-report.pdf
+ *                     created_at:
+ *                       type: string
+ *                       format: date-time
  *                 model_used:
  *                   type: string
  *                   example: claude-haiku-4-5-20251001
@@ -248,6 +288,8 @@ messagesRouter.post(
 
       // Process file attachment if present
       let attachment;
+      let attachmentUrl: string | null = null;
+
       if (req.file) {
         attachment = await processFile(req.file.buffer, req.file.mimetype, req.file.originalname);
 
@@ -257,18 +299,32 @@ messagesRouter.post(
           });
         }
 
+        // Upload to Cloudinary so the file is accessible in message history
+        attachmentUrl = await uploadToCloudinary(req.file.buffer, {
+          originalname: req.file.originalname,
+          mimetype: req.file.mimetype,
+        });
+
         logger.debug(
-          { conversationId, filename: req.file.originalname, type: attachment.type },
-          'File attachment processed',
+          { conversationId, filename: req.file.originalname, type: attachment.type, attachmentUrl },
+          'File attachment processed and uploaded',
         );
       }
 
-      // Build the message content that goes into the DB and is sent to AI
+      // Build the full context content sent to AI (includes extracted text / image label)
       const fullContent = buildMessageContent(content, attachment);
 
       await query(
-        `INSERT INTO messages (conversation_id, role, content) VALUES ($1, 'user', $2)`,
-        [conversationId, fullContent],
+        `INSERT INTO messages (conversation_id, role, content, user_prompt, attachment_url, attachment_type, attachment_name)
+         VALUES ($1, 'user', $2, $3, $4, $5, $6)`,
+        [
+          conversationId,
+          fullContent,
+          content,                                      // original user prompt
+          attachmentUrl,                                // Cloudinary URL (null if no file)
+          attachment?.type ?? null,
+          req.file?.originalname ?? null,
+        ],
       );
 
       const historyResult = await query(

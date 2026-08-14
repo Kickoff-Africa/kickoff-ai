@@ -113,7 +113,13 @@ conversationsRouter.get('/', authenticate, async (req, res) => {
  *   get:
  *     tags: [Conversations]
  *     summary: Get a conversation with messages
- *     description: Returns a single conversation and its full message history, ordered chronologically. Only the owning user can access their conversations.
+ *     description: |
+ *       Returns a single conversation and its full message history, ordered chronologically.
+ *       Only the owning user can access their conversations.
+ *
+ *       For user messages, `content` is the original prompt text (not the embedded file context
+ *       sent to the AI). Attachment metadata is returned via `attachment_url`, `attachment_type`,
+ *       and `attachment_name` so the frontend can render previews or download links.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -173,7 +179,7 @@ conversationsRouter.get('/:id', authenticate, async (req, res) => {
     const conversation = convResult.rows[0];
 
     const messagesResult = await query(
-      `SELECT id, role, content, model_used, created_at
+      `SELECT id, role, content, user_prompt, attachment_url, attachment_type, attachment_name, model_used, created_at
        FROM messages
        WHERE conversation_id = $1
        ORDER BY created_at ASC`,
@@ -187,7 +193,11 @@ conversationsRouter.get('/:id', authenticate, async (req, res) => {
       messages: messagesResult.rows.map((row) => ({
         id: row.id,
         role: row.role,
-        content: row.content,
+        // For user messages: return the original prompt; fall back to content for old rows
+        content: row.role === 'user' ? (row.user_prompt ?? row.content) : row.content,
+        attachment_url: row.attachment_url ?? null,
+        attachment_type: row.attachment_type ?? null,
+        attachment_name: row.attachment_name ?? null,
         model_used: row.model_used,
         created_at: row.created_at,
       })),

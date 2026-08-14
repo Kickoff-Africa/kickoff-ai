@@ -57,8 +57,29 @@ const options: swaggerJsdoc.Options = {
           properties: {
             id: { type: 'string', format: 'uuid' },
             role: { type: 'string', enum: ['user', 'assistant'] },
-            content: { type: 'string' },
-            model_used: { type: 'string', nullable: true },
+            content: {
+              type: 'string',
+              description: 'For user messages: the original prompt text. For assistant messages: the AI response.',
+            },
+            attachment_url: {
+              type: 'string',
+              nullable: true,
+              description: 'Cloudinary URL of the uploaded file or image, if any.',
+              example: 'https://res.cloudinary.com/kickoff/image/upload/v1/kickoff-ai/attachments/report.pdf',
+            },
+            attachment_type: {
+              type: 'string',
+              nullable: true,
+              enum: ['image', 'pdf', 'text', null],
+              description: 'Type of the attached file.',
+            },
+            attachment_name: {
+              type: 'string',
+              nullable: true,
+              description: 'Original filename of the attachment.',
+              example: 'q3-report.pdf',
+            },
+            model_used: { type: 'string', nullable: true, example: 'claude-haiku-4-5-20251001' },
             tokens_used: { type: 'integer', nullable: true },
             created_at: { type: 'string', format: 'date-time' },
           },
