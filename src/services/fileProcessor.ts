@@ -50,12 +50,10 @@ export async function processFile(
   }
 
   if (type === 'pdf') {
-    // Import the raw library path to bypass the pdfjs-dist browser bundle
-    // which requires DOMMatrix, ImageData, Path2D (browser-only globals)
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (buf: Buffer) => Promise<{ text: string }>
-    const data = await pdfParse(buffer)
-    return { type, originalname, text: data.text.trim() }
+    const { getDocumentProxy, extractText } = await import('unpdf')
+    const pdf = await getDocumentProxy(new Uint8Array(buffer))
+    const { text } = await extractText(pdf, { mergePages: true })
+    return { type, originalname, text: text.trim() }
   }
 
   return { type, originalname }
