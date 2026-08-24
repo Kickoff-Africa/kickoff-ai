@@ -1,62 +1,120 @@
-import Anthropic from '@anthropic-ai/sdk'
+  // src/services/claude.ts
+  const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ||
+  'http://localhost:11434'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+  type Complexity = 'simple' | 'moderate' | 'complex'
 
-export async function classifyComplexity(message: string): Promise<"simple" | "moderate" | "complex"> {
-  const response = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 10,
-    system: "Classify the complexity of the following user message as exactly one word: simple, moderate, or complex. Simple = factual questions, greetings, basic tasks. Moderate = analysis, comparison, multi-step reasoning. Complex = creative writing, deep research, expert-level problems. Respond with ONLY that single word, nothing else.",
-    messages: [{ role: "user", content: message }]
-  })
-  const text = response.content[0].type === 'text' ? response.content[0].text.trim().toLowerCase() : 'moderate'
-  if (text === 'simple' || text === 'moderate' || text === 'complex') return text
-  return 'moderate'
-}
+  function simpleModel(): any   { return
+  process.env.OLLAMA_SIMPLE_MODEL   || 'gemma4:latest' }
+  function moderateModel(): any { return
+  process.env.OLLAMA_MODERATE_MODEL || 'gemma4:latest' }
+  function complexModel(): any  { return
+  process.env.OLLAMA_COMPLEX_MODEL  || 'gemma4:latest' }
+  function visionModel(): any   { return
+  process.env.OLLAMA_VISION_MODEL   || 'gemma4:latest' }
 
-export function getModelForComplexity(complexity: "simple" | "moderate" | "complex"): string {
-  return complexity === 'complex' ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001'
-}
-
-export async function chat(
-  messages: Array<{ role: "user" | "assistant"; content: string }>,
-  model: string,
-  options?: { imageBase64?: string; imageMimeType?: string }
-): Promise<{ content: string; tokensUsed: number }> {
-  // Build the last user message — with an image block if provided
-  const lastMsg = messages[messages.length - 1]
-  const history = messages.slice(0, -1)
-
-  let lastContent: Anthropic.MessageParam['content']
-
-  if (options?.imageBase64 && lastMsg.role === 'user') {
-    lastContent = [
-      {
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: options.imageMimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-          data: options.imageBase64,
-        },
-      },
-      { type: 'text', text: lastMsg.content },
-    ]
-  } else {
-    lastContent = lastMsg.content
+  export function getModelForComplexity(complexity: 
+  Complexity): string {
+    switch (complexity) {
+      case 'simple':   return simpleModel()
+      case 'moderate': return moderateModel()
+      case 'complex':  return complexModel()
+      default:         return moderateModel()
+    }
   }
 
-  const anthropicMessages: Anthropic.MessageParam[] = [
-    ...history.map(m => ({ role: m.role, content: m.content })),
-    { role: lastMsg.role, content: lastContent },
-  ]
+  // ---------- classifyComplexity ----------
+  export async function classifyComplexity(message: string): 
+  Promise<Complexity> {
+    const res = await
+  fetch(`${OLLAMA_BASE_URL}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: simpleModel(),
+        prompt:
+          `Classify the complexity of the following user 
+  message as exactly one word: ` +
+          `simple, moderate, or complex. Simple = factual 
+  questions, greetings, basic tasks. ` +
+          `Moderate = analysis, comparison, multi-step 
+  reasoning. ` +
+          `Complex = creative writing, deep research, 
+  expert-level problems. ` +
+          `Respond with ONLY that single word, nothing 
+  else.\n\nMessage: ${message}`,
+        stream: false,
+        options: { temperature: 0, num_predict: 5 },
+      }),
+    })
 
-  const response = await anthropic.messages.create({
-    model,
-    max_tokens: 4096,
-    messages: anthropicMessages,
-  })
+    if (!res.ok) {
+      console.error('Ollama classifyComplexity failed',
+  res.status, await res.text())
+      return 'moderate'
+    }
 
-  const content = response.content[0].type === 'text' ? response.content[0].text : ''
-  const tokensUsed = response.usage.input_tokens + response.usage.output_tokens
-  return { content, tokensUsed }
-}
+    const data = await res.json() as { response?: string }
+    const text = (data.response || '').trim().toLowerCase()
+    if (text === 'simple' || text === 'moderate' || text ===
+  'complex') return text
+    return 'moderate'
+  }
+
+  // ---------- chat ----------
+  type ChatMessage = { role: 'user' | 'assistant'; content:
+  string }
+
+  export async function chat(
+    messages: ChatMessage[],
+    model: string,
+    options?: { imageBase64?: string; imageMimeType?: string 
+  }
+  ): Promise<{ content: string; tokensUsed: number }> {
+    const ollamaMessages = messages.map((m, i) => {
+      const isLast = i === messages.length - 1
+      if (isLast && m.role === 'user' &&
+  options?.imageBase64) {
+        return {
+          role: m.role,
+          content: m.content,
+          images: [options.imageBase64],
+        }
+      }
+      return { role: m.role, content: m.content }
+    })
+
+    const chosenModel = options?.imageBase64 ? visionModel()
+  : model
+
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: chosenModel,
+        messages: ollamaMessages,
+        stream: false,
+        options: { num_predict: 4096 },
+      }),
+    })
+
+    if (!res.ok) {
+      const errText = await res.text()
+      console.error('Ollama chat failed', res.status,
+  errText)
+      throw new Error(`Ollama chat failed: ${res.status} 
+  ${errText}`)
+    }
+
+    const data = await res.json() as {
+      message?: { role: string; content: string }
+      prompt_eval_count?: number
+      eval_count?: number
+    }
+
+    return {
+      content: data.message?.content ?? '',
+      tokensUsed: (data.prompt_eval_count ?? 0) +
+  (data.eval_count ?? 0),
+    }
+  }
