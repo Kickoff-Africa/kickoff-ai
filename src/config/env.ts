@@ -46,9 +46,9 @@ export const config = {
   cloudinaryApiKey: requireEnv("CLOUDINARY_API_KEY"),
   cloudinaryApiSecret: requireEnv("CLOUDINARY_API_SECRET"),
   // Ollama
-  ollamaBaseUrl: requireUrl("OLLAMA_BASE_URL", "http://localhost:11434"),
-  ollamaSimpleModel: optionalEnv("OLLAMA_SIMPLE_MODEL", "llama3.2:3b"),
-  ollamaModerateModel: optionalEnv("OLLAMA_MODERATE_MODEL", "llama3.1:8b"),
-  ollamaComplexModel: optionalEnv("OLLAMA_COMPLEX_MODEL", "qwen2.5:14b"),
-  ollamaVisionModel: optionalEnv("OLLAMA_VISION_MODEL", "llava:13b"),
+  ollamaBaseUrl: requireUrl("OLLAMA_BASE_URL", "http://203.161.52.27:11434"),
+  ollamaSimpleModel: optionalEnv("OLLAMA_SIMPLE_MODEL", "gemma4b:latest"),
+  ollamaModerateModel: optionalEnv("OLLAMA_MODERATE_MODEL", "gemma4b:latest"),
+  ollamaComplexModel: optionalEnv("OLLAMA_COMPLEX_MODEL", "gemma4b:latest"),
+  ollamaVisionModel: optionalEnv("OLLAMA_VISION_MODEL", "gemma4b:latest"),
 };
