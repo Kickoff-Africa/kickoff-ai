@@ -334,12 +334,11 @@ messagesRouter.post(
 
       const historyRows = historyResult.rows as Array<{ role: 'user' | 'assistant'; content: string }>;
 
-      const complexity = await classifyComplexity(content);
-      // Images always go to Sonnet (vision support); otherwise route by complexity
-      const model = (attachment?.type === 'image')
-        ? 'claude-sonnet-4-6'
-        : getModelForComplexity(complexity);
-
+     const complexity = await classifyComplexity(content);
+       
+        const model = (attachment?.type === 'image')
+          ? getModelForComplexity('complex')
+          : getModelForComplexity(complexity);
       logger.debug(
         { conversationId, complexity, model, vision: attachment?.type === 'image' },
         'Message classified and routed',
@@ -399,10 +398,17 @@ messagesRouter.post(
       if ((err as NodeJS.ErrnoException).message?.includes('File too large')) {
         return res.status(400).json({ error: 'File too large. Maximum size is 20 MB.' });
       }
-      logger.error(
-        { err, conversationId: req.params.conversationId, userId: req.user?.id },
-        'POST /conversations/:conversationId/messages error',
-      );
+     logger.error(
+          {
+            err: {
+              message: (err as Error).message,
+              stack: (err as Error).stack,
+            },
+            conversationId: req.params.conversationId,
+            userId: req.user?.id,
+          },
+          'POST /conversations/:conversationId/messages error',
+        );
       return res.status(500).json({ error: 'Internal server error' });
     }
   },
