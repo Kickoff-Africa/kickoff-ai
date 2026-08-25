@@ -62,7 +62,7 @@ const upload = multer({
  *
  *       | Type | Accepted formats | How it works |
  *       |------|-----------------|--------------|
- *       | **Image** | `image/jpeg`, `image/png`, `image/gif`, `image/webp` | Sent to the configured Ollama vision model. The model sees the actual image. |
+ *       | **Image** | `image/jpeg`, `image/png`, `image/gif`, `image/webp` | **Temporarily unavailable** — returns `503`. No working vision model is currently deployed. |
  *       | **PDF** | `application/pdf` | Text is extracted from the PDF and prepended to the prompt as context. |
  *       | **Text** | `text/plain`, `text/csv`, `text/html`, `.md`, `.json`, `.yaml`, `.ts`, `.js`, `.py`, `.sh`, `.log`, `.xml` | File content is injected as context before the user's prompt. |
  *
@@ -297,6 +297,12 @@ messagesRouter.post(
         if (attachment.type === 'unsupported') {
           return res.status(400).json({
             error: `Unsupported file type: ${req.file.mimetype}. Supported: images (jpeg, png, gif, webp), PDFs, and text files.`,
+          });
+        }
+
+        if (attachment.type === 'image') {
+          return res.status(503).json({
+            error: 'Image attachments are temporarily unavailable. Please describe the image in text instead.',
           });
         }
 
