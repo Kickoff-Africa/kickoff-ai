@@ -4,7 +4,7 @@ import { query } from '../config/database';
 import { logger } from '../config/logger';
 import { authenticate } from '../middleware/authenticate';
 import { checkAccess } from '../middleware/checkAccess';
-import { classifyComplexity, getModelForComplexity, chat } from '../services/ollama';
+import { classifyComplexity, getModelForComplexity, chat, OllamaUnavailableError } from '../services/ollama';
 import { processFile, buildMessageContent } from '../services/fileProcessor';
 import { uploadToCloudinary } from '../services/cloudinary';
 import { addUsage, getRemainingSeconds } from '../services/access';
@@ -398,6 +398,13 @@ messagesRouter.post(
     } catch (err) {
       if ((err as NodeJS.ErrnoException).message?.includes('File too large')) {
         return res.status(400).json({ error: 'File too large. Maximum size is 20 MB.' });
+      }
+      if (err instanceof OllamaUnavailableError) {
+        logger.error(
+          { err: { message: err.message }, conversationId: req.params.conversationId, userId: req.user?.id },
+          'POST /conversations/:conversationId/messages: Ollama unavailable',
+        );
+        return res.status(503).json({ error: 'AI service is temporarily unavailable. Please try again shortly.' });
       }
      logger.error(
           {
