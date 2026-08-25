@@ -1,7 +1,7 @@
 {
   "name": "kickoff-ai",
   "version": "1.0.0",
-  "description": "Internal AI chat backend for Kickoff Africa — org-only ChatGPT alternative powered by Claude.",
+  "description": "Internal AI chat backend for Kickoff Africa — org-only ChatGPT alternative powered by Ollama.",
   "main": "index.js",
   "scripts": {
     "build": "tsc",
@@ -16,7 +16,6 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.115.0",
     "cloudinary": "^2.10.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",

@@ -41,7 +41,6 @@ export const config = {
   corsOrigin: process.env.CORS_ORIGIN ?? "*",
   allowedEmailDomain: process.env.ALLOWED_EMAIL_DOMAIN ?? null,
   adminEmail: requireEnv("ADMIN_EMAIL"),
-  anthropicApiKey: requireEnv("ANTHROPIC_API_KEY"),
   cloudinaryCloudName: requireEnv("CLOUDINARY_CLOUD_NAME"),
   cloudinaryApiKey: requireEnv("CLOUDINARY_API_KEY"),
   cloudinaryApiSecret: requireEnv("CLOUDINARY_API_SECRET"),

@@ -1,4 +1,4 @@
-// src/services/claude.ts
+// src/services/ollama.ts
 import { config } from "../config/env";
 
 const OLLAMA_BASE_URL = config.ollamaBaseUrl;

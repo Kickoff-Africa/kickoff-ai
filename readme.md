@@ -1,10 +1,10 @@
 # KickoffAI
 
-Internal AI chat backend for Kickoff Africa — a private, org-only alternative to ChatGPT powered by Anthropic Claude.
+Internal AI chat backend for Kickoff Africa — a private, org-only alternative to ChatGPT powered by Ollama.
 
 ## Overview
 
-KickoffAI gives every Kickoff Africa team member access to Claude-powered chat within a governed, auditable system. Org members authenticate via magic link, consume AI within a metered time window, and can request extensions from admins. All conversations and usage are tracked and visible to administrators.
+KickoffAI gives every Kickoff Africa team member access to Ollama-powered chat within a governed, auditable system. Org members authenticate via magic link, consume AI within a metered time window, and can request extensions from admins. All conversations and usage are tracked and visible to administrators.
 
 ## Features
 
@@ -12,7 +12,7 @@ KickoffAI gives every Kickoff Africa team member access to Claude-powered chat w
 - **JWT sessions** — stateless auth with jti-based revocation on logout
 - **Metered access** — 1 hour of free AI time per 12-hour rolling window, tracked cumulatively in seconds
 - **Extension requests** — users request +1, +2, or +3 bonus hours; admins approve or deny
-- **Smart model routing** — messages auto-classified by Claude Haiku, then routed to the cheapest appropriate model (Haiku for simple/moderate, Sonnet for complex)
+- **Smart model routing** — messages auto-classified by a lightweight Ollama model, then routed to the appropriate configured model (simple/moderate/complex/vision)
 - **Full conversation history** — all messages stored with model used and token count
 - **Admin panel** — full visibility into users, conversations, usage stats, and extension requests
 - **Structured logging** — pino with pretty-printing in development, JSON in production
@@ -25,7 +25,7 @@ KickoffAI gives every Kickoff Africa team member access to Claude-powered chat w
 | Runtime | Node.js + TypeScript |
 | Framework | Express 5 |
 | Database | PostgreSQL |
-| AI | Anthropic Claude API (`@anthropic-ai/sdk`) |
+| AI | Ollama (self-hosted, via HTTP API) |
 | Auth | JWT (`jsonwebtoken`) + magic links |
 | Logging | pino + pino-http |
 | Docs | swagger-jsdoc + swagger-ui-express |
@@ -36,7 +36,7 @@ KickoffAI gives every Kickoff Africa team member access to Claude-powered chat w
 
 - Node.js 18+
 - PostgreSQL 14+
-- An Anthropic API key
+- An Ollama server reachable over HTTP (with the desired models pulled)
 - SMTP credentials (or `NODE_ENV=development` to log magic links to console)
 
 ### Installation
@@ -68,7 +68,11 @@ SMTP_PASS=your-password
 SMTP_FROM=noreply@kickoff.africa
 APP_URL=http://localhost:3000
 ADMIN_EMAIL=work@kickoff.africa
-ANTHROPIC_API_KEY=sk-ant-...
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_SIMPLE_MODEL=gemma4b:latest
+OLLAMA_MODERATE_MODEL=gemma4b:latest
+OLLAMA_COMPLEX_MODEL=gemma4b:latest
+OLLAMA_VISION_MODEL=gemma4b:latest
 ```
 
 ### Database Setup
@@ -133,7 +137,7 @@ Interactive docs available at `http://localhost:3000/docs` when the server is ru
 | `POST` | `/conversations` | JWT | Create conversation |
 | `GET` | `/conversations` | JWT | List your conversations |
 | `GET` | `/conversations/:id` | JWT | Get conversation + messages |
-| `POST` | `/conversations/:id/messages` | JWT | Send message, receive Claude response |
+| `POST` | `/conversations/:id/messages` | JWT | Send message, receive Ollama response |
 
 ### Admin
 
@@ -147,13 +151,16 @@ Interactive docs available at `http://localhost:3000/docs` when the server is ru
 
 ## Model Routing
 
-Each message is classified by Claude Haiku before the main response is generated:
+Each message is classified by an Ollama model before the main response is generated:
 
 | Complexity | Examples | Model |
 |------------|----------|-------|
-| Simple | Greetings, factual lookups, basic tasks | `claude-haiku-4-5-20251001` |
-| Moderate | Analysis, comparisons, multi-step reasoning | `claude-haiku-4-5-20251001` |
-| Complex | Deep research, creative writing, expert problems | `claude-sonnet-4-6` |
+| Simple | Greetings, factual lookups, basic tasks | `OLLAMA_SIMPLE_MODEL` |
+| Moderate | Analysis, comparisons, multi-step reasoning | `OLLAMA_MODERATE_MODEL` |
+| Complex | Deep research, creative writing, expert problems | `OLLAMA_COMPLEX_MODEL` |
+| Image attached | Any message with an image attachment | `OLLAMA_VISION_MODEL` |
+
+All model names are configured via environment variables and default to `gemma4b:latest`.
 
 ## Admin Bootstrap
 
@@ -186,7 +193,7 @@ src/
 │   └── messages.ts      # POST /conversations/:id/messages
 ├── services/
 │   ├── access.ts        # Access window logic (get/create/addUsage/extend)
-│   ├── claude.ts        # Anthropic SDK (classify + route + chat)
+│   ├── ollama.ts        # Ollama HTTP API (classify + route + chat)
 │   ├── email.ts         # nodemailer magic link delivery
 │   └── token.ts         # Magic token generation + JWT sign/verify
 └── index.ts             # App bootstrap, router mounting, server start
@@ -208,6 +215,10 @@ src/
 | `SMTP_FROM` | No | `noreply@kickoff.africa` | Sender address |
 | `APP_URL` | No | `http://localhost:3000` | Public URL (used in magic link emails) |
 | `ADMIN_EMAIL` | Yes | — | Email address seeded as admin on startup |
-| `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key |
+| `OLLAMA_BASE_URL` | No | `http://203.161.52.27:11434` | Ollama server URL |
+| `OLLAMA_SIMPLE_MODEL` | No | `gemma4b:latest` | Model for simple-complexity messages |
+| `OLLAMA_MODERATE_MODEL` | No | `gemma4b:latest` | Model for moderate-complexity messages |
+| `OLLAMA_COMPLEX_MODEL` | No | `gemma4b:latest` | Model for complex-complexity messages |
+| `OLLAMA_VISION_MODEL` | No | `gemma4b:latest` | Model used when an image is attached |
 | `LOG_LEVEL` | No | `info` | pino log level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`) |
 | `NODE_ENV` | No | — | Set to `production` to enable JSON logs and SMTP delivery |

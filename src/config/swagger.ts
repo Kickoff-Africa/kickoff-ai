@@ -11,7 +11,7 @@ const options: swaggerJsdoc.Options = {
       title: 'KickoffAI API',
       version: '1.0.0',
       description:
-        'Internal AI chat backend for Kickoff Africa. Org members authenticate via magic link, consume Claude-powered chat within a metered access window, and admins govern users and extensions.',
+        'Internal AI chat backend for Kickoff Africa. Org members authenticate via magic link, consume Ollama-powered chat within a metered access window, and admins govern users and extensions.',
       contact: {
         name: 'Kickoff Africa',
         email: 'work@kickoff.africa',
@@ -79,7 +79,7 @@ const options: swaggerJsdoc.Options = {
               description: 'Original filename of the attachment.',
               example: 'q3-report.pdf',
             },
-            model_used: { type: 'string', nullable: true, example: 'claude-haiku-4-5-20251001' },
+            model_used: { type: 'string', nullable: true, example: 'gemma4b:latest' },
             tokens_used: { type: 'integer', nullable: true },
             created_at: { type: 'string', format: 'date-time' },
           },

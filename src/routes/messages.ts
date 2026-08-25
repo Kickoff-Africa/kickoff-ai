@@ -4,7 +4,7 @@ import { query } from '../config/database';
 import { logger } from '../config/logger';
 import { authenticate } from '../middleware/authenticate';
 import { checkAccess } from '../middleware/checkAccess';
-import { classifyComplexity, getModelForComplexity, chat } from '../services/claude';
+import { classifyComplexity, getModelForComplexity, chat } from '../services/ollama';
 import { processFile, buildMessageContent } from '../services/fileProcessor';
 import { uploadToCloudinary } from '../services/cloudinary';
 import { addUsage, getRemainingSeconds } from '../services/access';
@@ -62,7 +62,7 @@ const upload = multer({
  *
  *       | Type | Accepted formats | How it works |
  *       |------|-----------------|--------------|
- *       | **Image** | `image/jpeg`, `image/png`, `image/gif`, `image/webp` | Sent to Claude Sonnet with vision capability. The model sees the actual image. |
+ *       | **Image** | `image/jpeg`, `image/png`, `image/gif`, `image/webp` | Sent to the configured Ollama vision model. The model sees the actual image. |
  *       | **PDF** | `application/pdf` | Text is extracted from the PDF and prepended to the prompt as context. |
  *       | **Text** | `text/plain`, `text/csv`, `text/html`, `.md`, `.json`, `.yaml`, `.ts`, `.js`, `.py`, `.sh`, `.log`, `.xml` | File content is injected as context before the user's prompt. |
  *
@@ -84,11 +84,12 @@ const upload = multer({
  *
  *       | Condition | Model used |
  *       |-----------|-----------|
- *       | Image attached | `claude-sonnet-4-6` (vision) |
- *       | Complex message (no image) | `claude-sonnet-4-6` |
- *       | Simple or moderate message (no image) | `claude-haiku-4-5-20251001` |
+ *       | Image attached | `OLLAMA_VISION_MODEL` |
+ *       | Complex message (no image) | `OLLAMA_COMPLEX_MODEL` |
+ *       | Moderate message (no image) | `OLLAMA_MODERATE_MODEL` |
+ *       | Simple message (no image) | `OLLAMA_SIMPLE_MODEL` |
  *
- *       Complexity is classified by Claude Haiku before routing and is returned in the response.
+ *       Complexity is classified by an Ollama model before routing and is returned in the response.
  *
  *       ## Access window headers
  *
@@ -208,8 +209,8 @@ const upload = multer({
  *                       format: date-time
  *                 model_used:
  *                   type: string
- *                   example: claude-haiku-4-5-20251001
- *                   description: The Claude model that generated the response.
+ *                   example: gemma4b:latest
+ *                   description: The Ollama model that generated the response.
  *                 tokens_used:
  *                   type: integer
  *                   example: 142
