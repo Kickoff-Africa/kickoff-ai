@@ -56,4 +56,17 @@ export const config = {
     optionalEnv("WEB_SEARCH_CACHE_TTL_HOURS", "6"),
     10,
   ),
+  // Embedding model used for the semantic search cache.
+  ollamaEmbedModel: optionalEnv("OLLAMA_EMBED_MODEL", "nomic-embed-text"),
+  // Minimum cosine similarity for a cached query to count as a match for a
+  // new one. Lower = more cache hits but more risk of an off-topic match.
+  webSearchCacheSimilarityThreshold: parseFloat(
+    optionalEnv("WEB_SEARCH_CACHE_SIMILARITY_THRESHOLD", "0.92"),
+  ),
+  // Self-hosted ChromaDB instance backing the semantic search cache.
+  chromaUrl: requireUrl("CHROMA_URL", "http://localhost:8000"),
+  chromaCollectionName: optionalEnv(
+    "CHROMA_COLLECTION_NAME",
+    "web_search_cache",
+  ),
 };

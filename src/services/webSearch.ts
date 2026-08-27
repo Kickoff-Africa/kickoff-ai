@@ -1,8 +1,7 @@
 // src/services/webSearch.ts
 import * as cheerio from "cheerio";
-import { config } from "../config/env";
-import { query } from "../config/database";
 import { logger } from "../config/logger";
+import { getCachedResults, setCachedResults } from "./searchCache";
 
 // No API key/account needed: we crawl public search engine result pages
 // directly instead of calling a paid search API. This is inherently fragile —
@@ -138,42 +137,10 @@ async function crawlWithFallback(
   return { results: [], source: "none" };
 }
 
-// ---------- local cache ----------
-function normalizeQueryKey(searchQuery: string): string {
-  return searchQuery.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-async function getCachedResults(queryKey: string): Promise<WebSearchResult[] | null> {
-  const result = await query(
-    `SELECT results FROM web_search_cache
-     WHERE query_key = $1 AND created_at > NOW() - ($2 || ' hours')::interval`,
-    [queryKey, config.webSearchCacheTtlHours],
-  );
-
-  if (result.rows.length === 0) return null;
-  return (result.rows[0] as { results: WebSearchResult[] }).results;
-}
-
-async function setCachedResults(
-  queryKey: string,
-  source: string,
-  results: WebSearchResult[],
-): Promise<void> {
-  await query(
-    `INSERT INTO web_search_cache (query_key, source, results, created_at)
-     VALUES ($1, $2, $3, NOW())
-     ON CONFLICT (query_key)
-     DO UPDATE SET source = $2, results = $3, created_at = NOW()`,
-    [queryKey, source, JSON.stringify(results)],
-  );
-}
-
 // ---------- public entry point ----------
 export async function webSearch(searchQuery: string): Promise<WebSearchResult[]> {
-  const queryKey = normalizeQueryKey(searchQuery);
-
   try {
-    const cached = await getCachedResults(queryKey);
+    const cached = await getCachedResults(searchQuery);
     if (cached) return cached;
   } catch (err) {
     logger.error({ err: (err as Error).message }, "Web search cache lookup failed");
@@ -183,7 +150,7 @@ export async function webSearch(searchQuery: string): Promise<WebSearchResult[]>
 
   if (results.length > 0) {
     try {
-      await setCachedResults(queryKey, source, results);
+      await setCachedResults(searchQuery, source, results);
     } catch (err) {
       logger.error({ err: (err as Error).message }, "Web search cache write failed");
     }

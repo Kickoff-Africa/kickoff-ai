@@ -101,6 +101,21 @@ export async function classifyComplexity(message: string): Promise<Complexity> {
   return "moderate";
 }
 
+// ---------- embed ----------
+export async function embed(text: string): Promise<number[]> {
+  const res = await postOllama("/api/embed", {
+    model: config.ollamaEmbedModel,
+    input: text,
+  });
+
+  const data = (await res.json()) as { embeddings?: number[][] };
+  const embedding = data.embeddings?.[0];
+  if (!embedding) {
+    throw new OllamaUnavailableError("Ollama embed returned no embedding");
+  }
+  return embedding;
+}
+
 // ---------- generateConversationTitle ----------
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
