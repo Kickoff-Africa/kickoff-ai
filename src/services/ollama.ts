@@ -101,8 +101,49 @@ export async function classifyComplexity(message: string): Promise<Complexity> {
   return "moderate";
 }
 
-// ---------- chat ----------
+// ---------- generateConversationTitle ----------
 type ChatMessage = { role: "user" | "assistant"; content: string };
+
+const TITLE_TRANSCRIPT_CHAR_LIMIT = 2000;
+const TITLE_CHAR_LIMIT = 80;
+
+export async function generateConversationTitle(
+  messages: ChatMessage[],
+): Promise<string | null> {
+  const transcript = messages
+    .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+    .join("\n")
+    .slice(0, TITLE_TRANSCRIPT_CHAR_LIMIT);
+
+  try {
+    const res = await postOllama("/api/generate", {
+      model: simpleModel(),
+      prompt:
+        `Summarize the following conversation as a short title ` +
+        `(max 6 words, no ending punctuation, no quotes). ` +
+        `Respond with ONLY the title, nothing else.\n\n` +
+        `Conversation:\n${transcript}\n\nTitle:`,
+      stream: false,
+      options: { temperature: 0.2, num_predict: 20 },
+    });
+
+    const data = (await res.json()) as { response?: string };
+    const title = (data.response || "")
+      .trim()
+      .replace(/^["']|["']$/g, "")
+      .slice(0, TITLE_CHAR_LIMIT);
+
+    return title || null;
+  } catch (err) {
+    console.error(
+      "Ollama generateConversationTitle failed",
+      (err as Error).message,
+    );
+    return null;
+  }
+}
+
+// ---------- chat ----------
 
 export async function chat(
   messages: ChatMessage[],

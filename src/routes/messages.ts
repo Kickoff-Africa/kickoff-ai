@@ -4,7 +4,8 @@ import { query } from '../config/database';
 import { logger } from '../config/logger';
 import { authenticate } from '../middleware/authenticate';
 import { checkAccess } from '../middleware/checkAccess';
-import { classifyComplexity, getModelForComplexity, chat, OllamaUnavailableError } from '../services/ollama';
+import { classifyComplexity, getModelForComplexity, chat, generateConversationTitle, OllamaUnavailableError } from '../services/ollama';
+import { shouldSearch, webSearch, formatSearchResults } from '../services/webSearch';
 import { processFile, buildMessageContent } from '../services/fileProcessor';
 import { uploadToCloudinary } from '../services/cloudinary';
 import { addUsage, getRemainingSeconds } from '../services/access';
@@ -277,15 +278,13 @@ messagesRouter.post(
       const { conversationId } = req.params;
 
       const convResult = await query(
-        `SELECT id, title FROM conversations WHERE id = $1 AND user_id = $2`,
+        `SELECT id FROM conversations WHERE id = $1 AND user_id = $2`,
         [conversationId, userId],
       );
 
       if (convResult.rows.length === 0) {
         return res.status(404).json({ error: 'Conversation not found' });
       }
-
-      const conversation = convResult.rows[0] as { id: string; title: string | null };
 
       // Process file attachment if present
       let attachment;
@@ -355,7 +354,28 @@ messagesRouter.post(
         ? { imageBase64: attachment.base64, imageMimeType: attachment.mimeType ?? 'image/jpeg' }
         : undefined;
 
-      const { content: assistantContent, tokensUsed } = await chat(historyRows, model, chatOptions);
+      // Small local models can't reliably know when they need current info, so the
+      // decision to search is made deterministically (see shouldSearch) rather than
+      // left to the model. Results are injected only into this call's prompt, not
+      // persisted to the stored message.
+      let usedWebSearch = false;
+      let chatHistory = historyRows;
+      if (shouldSearch(content)) {
+        const results = await webSearch(content);
+        if (results.length > 0) {
+          usedWebSearch = true;
+          const lastMessage = historyRows[historyRows.length - 1];
+          chatHistory = [
+            ...historyRows.slice(0, -1),
+            {
+              ...lastMessage,
+              content: `${lastMessage.content}\n\n[Web search results for reference, use if relevant]\n${formatSearchResults(results)}`,
+            },
+          ];
+        }
+      }
+
+      const { content: assistantContent, tokensUsed } = await chat(chatHistory, model, chatOptions);
       const modelUsed = model;
 
       const assistantResult = await query(
@@ -367,8 +387,16 @@ messagesRouter.post(
 
       const assistantMessage = assistantResult.rows[0];
 
-      if (conversation.title === null) {
-        const title = content.slice(0, 50) + (content.length > 50 ? '...' : '');
+      // Keep the title an up-to-date summary while the conversation is still short;
+      // once it's grown past the first 5 messages, leave the title alone.
+      const totalMessages = historyRows.length + 1; // + the assistant reply just generated
+      if (totalMessages <= 5) {
+        const titleMessages = [
+          ...historyRows,
+          { role: 'assistant' as const, content: assistantContent },
+        ].slice(0, 5);
+        const generatedTitle = await generateConversationTitle(titleMessages);
+        const title = generatedTitle ?? content.slice(0, 50) + (content.length > 50 ? '...' : '');
         await query(
           `UPDATE conversations SET title = $1, updated_at = NOW() WHERE id = $2`,
           [title, conversationId],
@@ -391,7 +419,7 @@ messagesRouter.post(
       res.setHeader('X-Access-Window-Expires-At', accessState.windowExpiresAt.toISOString());
 
       logger.info(
-        { userId, conversationId, model: modelUsed, complexity, tokensUsed, elapsedSeconds },
+        { userId, conversationId, model: modelUsed, complexity, tokensUsed, elapsedSeconds, usedWebSearch },
         'Message processed',
       );
 
@@ -400,6 +428,7 @@ messagesRouter.post(
         model_used: modelUsed,
         tokens_used: tokensUsed,
         complexity,
+        used_web_search: usedWebSearch,
       });
     } catch (err) {
       if ((err as NodeJS.ErrnoException).message?.includes('File too large')) {

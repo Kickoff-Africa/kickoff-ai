@@ -50,4 +50,10 @@ export const config = {
   ollamaModerateModel: optionalEnv("OLLAMA_MODERATE_MODEL", "gemma3:1b"),
   ollamaComplexModel: optionalEnv("OLLAMA_COMPLEX_MODEL", "gemma3:1b"),
   ollamaVisionModel: optionalEnv("OLLAMA_VISION_MODEL", "gemma3:4b"),
+  // How long crawled web search results stay valid in the local cache before
+  // a query is considered stale and re-crawled.
+  webSearchCacheTtlHours: parseInt(
+    optionalEnv("WEB_SEARCH_CACHE_TTL_HOURS", "6"),
+    10,
+  ),
 };
