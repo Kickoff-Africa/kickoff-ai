@@ -6,7 +6,21 @@ import { ChromaClient, type Collection, type EmbeddingFunction } from "chromadb"
 import { config } from "../config/env";
 import { embed } from "./ollama";
 
-const client = new ChromaClient({ path: config.chromaUrl });
+// The `path` constructor option is deprecated — and not just cosmetically:
+// passing it silently defaults the port to 8000 instead of parsing the port
+// out of the URL, so it fails outright against any deployment that isn't
+// exposed on 8000 (e.g. behind a reverse proxy on 80/443, like Coolify's
+// ingress). Parsing host/port/ssl out ourselves is what actually works.
+const parsedChromaUrl = new URL(config.chromaUrl);
+const client = new ChromaClient({
+  host: parsedChromaUrl.hostname,
+  port: parsedChromaUrl.port
+    ? parseInt(parsedChromaUrl.port, 10)
+    : parsedChromaUrl.protocol === "https:"
+      ? 443
+      : 80,
+  ssl: parsedChromaUrl.protocol === "https:",
+});
 
 const ollamaEmbeddingFunction: EmbeddingFunction = {
   name: `ollama-${config.ollamaEmbedModel}`,
