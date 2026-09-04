@@ -1,3 +1,5 @@
+import { dynamicImport } from '../utils/dynamicImport'
+
 const IMAGE_MIMETYPES = new Set([
   'image/jpeg',
   'image/png',
@@ -53,14 +55,14 @@ export async function processFile(
   }
 
   if (type === 'pdf') {
-    const { getDocumentProxy, extractText } = await import('unpdf')
+    const { getDocumentProxy, extractText } = await dynamicImport('unpdf')
     const pdf = await getDocumentProxy(new Uint8Array(buffer))
     const { text } = await extractText(pdf, { mergePages: true })
     return { type, originalname, text: text.trim() }
   }
 
   if (type === 'docx') {
-    const mammoth = await import('mammoth')
+    const mammoth = await dynamicImport('mammoth')
     const { value: text } = await mammoth.extractRawText({ buffer })
     return { type, originalname, text: text.trim() }
   }

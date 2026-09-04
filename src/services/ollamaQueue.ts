@@ -10,12 +10,13 @@
 // otherwise-CommonJS project (see also unpdf/mammoth in fileProcessor.ts).
 import type PQueue from "p-queue";
 import { config } from "../config/env";
+import { dynamicImport } from "../utils/dynamicImport";
 
 let queuePromise: Promise<PQueue> | null = null;
 
 function getQueue(): Promise<PQueue> {
   if (!queuePromise) {
-    queuePromise = import("p-queue").then(
+    queuePromise = dynamicImport("p-queue").then(
       ({ default: PQueueCtor }) => new PQueueCtor({ concurrency: config.ollamaMaxConcurrency }),
     );
   }
