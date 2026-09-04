@@ -14,6 +14,8 @@ import { extensionsRouter } from './routes/extensions';
 import { conversationsRouter } from './routes/conversations';
 import { messagesRouter } from './routes/messages';
 import { adminRouter } from './routes/admin';
+import { knowledgeBaseRouter } from './routes/knowledgeBase';
+import { startDailyDigestJob } from './jobs/dailyDigest';
 
 export const app = express();
 
@@ -63,6 +65,7 @@ app.use('/extensions', extensionsRouter);
 app.use('/conversations', conversationsRouter);
 app.use('/conversations', messagesRouter);
 app.use('/admin', adminRouter);
+app.use('/admin/knowledge-base', knowledgeBaseRouter);
 
 async function start(): Promise<void> {
   try {
@@ -91,6 +94,8 @@ async function start(): Promise<void> {
     logger.info({ port: config.port }, 'KickoffAI server started');
     logger.info({ url: `http://localhost:${config.port}/docs` }, 'API docs available');
   });
+
+  startDailyDigestJob();
 }
 
 start();

@@ -1,5 +1,6 @@
 // src/services/ollama.ts
 import { config } from "../config/env";
+import { withOllamaQueue } from "./ollamaQueue";
 
 const OLLAMA_BASE_URL = config.ollamaBaseUrl;
 const RETRY_DELAY_MS = 500;
@@ -39,22 +40,33 @@ export function getModelForComplexity(complexity: Complexity): string {
   }
 }
 
-// Makes one request to Ollama, retrying once on network error or non-2xx
-// response (e.g. the model server was killed and is still restarting).
-async function postOllama(path: string, body: unknown): Promise<Response> {
+// One request attempt, bounded by a hard deadline so a wedged request can't
+// hold its queue slot — and therefore block every other user — forever.
+async function fetchOllamaOnce(path: string, body: unknown, timeoutMs: number): Promise<Response> {
+  const res = await fetch(`${OLLAMA_BASE_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+
+  if (!res.ok) {
+    throw new Error(`${res.status} ${await res.text()}`);
+  }
+
+  return res;
+}
+
+// Retries once on network error, timeout, or non-2xx response (e.g. the
+// model server was killed and is still restarting). Not queued — callers
+// decide the queuing boundary, since a streaming caller needs the queue slot
+// held well past the point this function returns.
+async function postOllamaWithRetry(path: string, body: unknown, timeoutMs: number): Promise<Response> {
   let lastError: string;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const res = await fetch(`${OLLAMA_BASE_URL}${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (res.ok) return res;
-
-      lastError = `${res.status} ${await res.text()}`;
+      return await fetchOllamaOnce(path, body, timeoutMs);
     } catch (err) {
       lastError = (err as Error).message;
     }
@@ -67,6 +79,14 @@ async function postOllama(path: string, body: unknown): Promise<Response> {
   throw new OllamaUnavailableError(
     `Ollama request to ${path} failed after retry: ${lastError!}`,
   );
+}
+
+// Queued wrapper for quick, fixed-size calls (classify/embed/title). Safe to
+// let callers read the response body after this resolves — for a
+// stream:false request Ollama has already finished all generation by the
+// time headers come back, so no meaningful work happens outside the queue.
+async function postOllama(path: string, body: unknown): Promise<Response> {
+  return withOllamaQueue(() => postOllamaWithRetry(path, body, config.ollamaQuickTimeoutMs));
 }
 
 // ---------- classifyComplexity ----------
@@ -158,11 +178,17 @@ export async function generateConversationTitle(
   }
 }
 
-// ---------- chat ----------
-
-export async function chat(
+// ---------- chatStream ----------
+// Streams the response so the caller can forward tokens to the client as
+// they're generated, instead of the whole request blocking on one giant
+// wait. The entire read loop — not just the initial fetch — runs inside the
+// queue: for a streaming response, Ollama keeps using CPU for as long as the
+// body is still being read, so the queue slot has to be held for the whole
+// generation, not just until the connection opens.
+export async function chatStream(
   messages: ChatMessage[],
   model: string,
+  onDelta: (delta: string) => void,
   options?: { imageBase64?: string; imageMimeType?: string },
 ): Promise<{ content: string; tokensUsed: number }> {
   const ollamaMessages = messages.map((m, i) => {
@@ -179,21 +205,55 @@ export async function chat(
 
   const chosenModel = options?.imageBase64 ? visionModel() : model;
 
-  const res = await postOllama("/api/chat", {
-    model: chosenModel,
-    messages: ollamaMessages,
-    stream: false,
-    options: { num_predict: 4096 },
+  return withOllamaQueue(async () => {
+    const res = await postOllamaWithRetry(
+      "/api/chat",
+      { model: chosenModel, messages: ollamaMessages, stream: true, options: { num_predict: 4096 } },
+      config.ollamaChatTimeoutMs,
+    );
+
+    if (!res.body) {
+      throw new OllamaUnavailableError("Ollama chat stream had no response body");
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let fullContent = "";
+    let promptEvalCount = 0;
+    let evalCount = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      // Ollama streams newline-delimited JSON objects; a chunk boundary can
+      // land mid-line, so buffer any trailing partial line until it's complete.
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+
+        const chunk = JSON.parse(line) as {
+          message?: { content?: string };
+          done?: boolean;
+          prompt_eval_count?: number;
+          eval_count?: number;
+        };
+
+        if (chunk.message?.content) {
+          fullContent += chunk.message.content;
+          onDelta(chunk.message.content);
+        }
+        if (chunk.done) {
+          promptEvalCount = chunk.prompt_eval_count ?? 0;
+          evalCount = chunk.eval_count ?? 0;
+        }
+      }
+    }
+
+    return { content: fullContent, tokensUsed: promptEvalCount + evalCount };
   });
-
-  const data = (await res.json()) as {
-    message?: { role: string; content: string };
-    prompt_eval_count?: number;
-    eval_count?: number;
-  };
-
-  return {
-    content: data.message?.content ?? "",
-    tokensUsed: (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0),
-  };
 }

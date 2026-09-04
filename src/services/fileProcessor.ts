@@ -12,13 +12,16 @@ const TEXT_EXTENSIONS = new Set([
   '.js', '.py', '.sh', '.log',
 ])
 
-export type AttachmentType = 'image' | 'pdf' | 'text' | 'unsupported'
+const DOCX_MIMETYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+export type AttachmentType = 'image' | 'pdf' | 'docx' | 'text' | 'unsupported'
 
 function detectType(mimetype: string, originalname: string): AttachmentType {
   if (IMAGE_MIMETYPES.has(mimetype)) return 'image'
   if (mimetype === 'application/pdf') return 'pdf'
 
   const ext = originalname.toLowerCase().slice(originalname.lastIndexOf('.'))
+  if (mimetype === DOCX_MIMETYPE || ext === '.docx') return 'docx'
   if (mimetype.startsWith('text/') || TEXT_EXTENSIONS.has(ext)) return 'text'
 
   return 'unsupported'
@@ -56,6 +59,12 @@ export async function processFile(
     return { type, originalname, text: text.trim() }
   }
 
+  if (type === 'docx') {
+    const mammoth = await import('mammoth')
+    const { value: text } = await mammoth.extractRawText({ buffer })
+    return { type, originalname, text: text.trim() }
+  }
+
   return { type, originalname }
 }
 
@@ -71,7 +80,7 @@ export function buildMessageContent(userText: string, file?: ProcessedFile): str
     return `[Image: ${file.originalname}]\n\n${userText}`
   }
 
-  if (file.type === 'pdf' || file.type === 'text') {
+  if (file.type === 'pdf' || file.type === 'docx' || file.type === 'text') {
     return `[File: ${file.originalname}]\n\n${file.text}\n\n---\n\n${userText}`
   }
 

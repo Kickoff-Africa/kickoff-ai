@@ -137,6 +137,13 @@ async function crawlWithFallback(
   return { results: [], source: "none" };
 }
 
+// Used by the daily digest job, which wants a fresh crawl on its own schedule
+// rather than the per-user-query semantic cache used by `webSearch()` below.
+export async function crawlForDigest(searchQuery: string): Promise<WebSearchResult[]> {
+  const { results } = await crawlWithFallback(searchQuery);
+  return results;
+}
+
 // ---------- public entry point ----------
 export async function webSearch(searchQuery: string): Promise<WebSearchResult[]> {
   try {

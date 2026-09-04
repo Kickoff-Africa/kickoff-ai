@@ -4,8 +4,9 @@ import { query } from '../config/database';
 import { logger } from '../config/logger';
 import { authenticate } from '../middleware/authenticate';
 import { checkAccess } from '../middleware/checkAccess';
-import { classifyComplexity, getModelForComplexity, chat, generateConversationTitle, OllamaUnavailableError } from '../services/ollama';
+import { classifyComplexity, getModelForComplexity, chatStream, generateConversationTitle, OllamaUnavailableError } from '../services/ollama';
 import { shouldSearch, webSearch, formatSearchResults } from '../services/webSearch';
+import { queryKnowledgeBase, formatKnowledgeBaseMatches } from '../services/knowledgeBase';
 import { processFile, buildMessageContent } from '../services/fileProcessor';
 import { uploadToCloudinary } from '../services/cloudinary';
 import { addUsage, getRemainingSeconds } from '../services/access';
@@ -92,24 +93,43 @@ const upload = multer({
  *
  *       Complexity is classified by an Ollama model before routing and is returned in the response.
  *
- *       ## Access window headers
+ *       ## Streaming response
  *
- *       Every response includes headers showing the user's remaining access time.
- *       Read these after every request to keep the UI in sync without polling `/access/status`:
- *
- *       ```
- *       X-Access-Seconds-Remaining: 3241
- *       X-Access-Seconds-Used:       359
- *       X-Access-Total-Allowed:      3600
- *       X-Access-Window-Expires-At:  2026-08-12T21:00:00.000Z
- *       ```
+ *       On success, the response is `200` with `Content-Type: application/x-ndjson` — a stream of
+ *       newline-delimited JSON objects, not a single JSON body. Read it with a `fetch` + `ReadableStream`
+ *       reader (not `EventSource`, which only supports `GET`), splitting on `\n`:
  *
  *       ```js
- *       const remaining = parseInt(response.headers.get('X-Access-Seconds-Remaining'))
+ *       const res = await fetch(`/conversations/${id}/messages`, { method: 'POST', ... })
+ *       const reader = res.body.getReader()
+ *       const decoder = new TextDecoder()
+ *       let buffer = ''
+ *       while (true) {
+ *         const { done, value } = await reader.read()
+ *         if (done) break
+ *         buffer += decoder.decode(value, { stream: true })
+ *         const lines = buffer.split('\n')
+ *         buffer = lines.pop()
+ *         for (const line of lines) {
+ *           if (!line.trim()) continue
+ *           const event = JSON.parse(line)
+ *           // event.type: 'chunk' | 'done' | 'error'
+ *         }
+ *       }
  *       ```
  *
- *       **Note:** Headers are set after usage is deducted, so they always reflect the accurate
- *       remaining time for that request.
+ *       Three line shapes appear on the stream:
+ *       - `{"type":"chunk","content":"..."}` — one per generated token/fragment, in order.
+ *       - `{"type":"done", message, model_used, tokens_used, complexity, used_web_search,
+ *         used_knowledge_base, access}` — exactly once, at the end of a successful generation.
+ *         `access` carries the same fields the old `X-Access-*` response headers used to
+ *         (`seconds_remaining`, `seconds_used`, `total_allowed`, `window_expires_at`) — those
+ *         headers are gone, since headers can't be set after the stream has already started.
+ *       - `{"type":"error","error":"..."}` — generation failed after streaming had already begun,
+ *         so the failure can no longer become a clean HTTP status code. This is only possible once
+ *         at least one `chunk` line may have already been sent. Failures caught *before* streaming
+ *         starts (bad input, missing conversation, unsupported file, Ollama unreachable) still
+ *         return a normal JSON error response with the appropriate 4xx/5xx status — see below.
  *
  *       ## Auto-titling
  *
@@ -149,76 +169,64 @@ const upload = multer({
  *                 format: binary
  *                 description: |
  *                   Optional file attachment. Supported: images (jpeg, png, gif, webp),
- *                   PDFs, and text files (.txt, .md, .csv, .json, .yaml, .ts, .js, .py, etc.).
+ *                   PDFs, Word documents (.docx), and text files (.txt, .md, .csv, .json, .yaml, .ts, .js, .py, etc.).
  *                   Maximum 20 MB.
  *     responses:
- *       201:
- *         description: Assistant response
- *         headers:
- *           X-Access-Seconds-Remaining:
- *             schema:
- *               type: integer
- *             description: Seconds remaining in the user's current 1-hour access window (after this request's usage is deducted).
- *           X-Access-Seconds-Used:
- *             schema:
- *               type: integer
- *             description: Total seconds consumed in the current access window.
- *           X-Access-Total-Allowed:
- *             schema:
- *               type: integer
- *             description: Total seconds allowed in the current window (base 3600 + any granted extensions).
- *           X-Access-Window-Expires-At:
- *             schema:
- *               type: string
- *               format: date-time
- *             description: ISO 8601 timestamp when the current access window expires.
+ *       200:
+ *         description: |
+ *           Streamed NDJSON response — see the "Streaming response" section above for the line
+ *           shapes and a parsing example. Not a single JSON body, so the schema below describes
+ *           the shape of the final `done` line's `message` field, not the HTTP response itself.
  *         content:
- *           application/json:
+ *           application/x-ndjson:
  *             schema:
  *               type: object
+ *               description: One of {type:"chunk"}, {type:"done"}, or {type:"error"} — see above.
  *               properties:
+ *                 type:
+ *                   type: string
+ *                   enum: [chunk, done, error]
+ *                 content:
+ *                   type: string
+ *                   description: Present on "chunk" lines — a fragment of the assistant's reply.
  *                 message:
- *                   $ref: '#/components/schemas/Message'
- *                 user_message:
- *                   type: object
- *                   description: The saved user message record, including attachment metadata.
- *                   properties:
- *                     id:
- *                       type: string
- *                       format: uuid
- *                     role:
- *                       type: string
- *                       example: user
- *                     content:
- *                       type: string
- *                       description: The user's original prompt text.
- *                     attachment_url:
- *                       type: string
- *                       nullable: true
- *                       description: Permanent Cloudinary URL of the uploaded file.
- *                       example: https://res.cloudinary.com/kickoff/image/upload/v1/kickoff-ai/attachments/photo.jpg
- *                     attachment_type:
- *                       type: string
- *                       nullable: true
- *                       enum: [image, pdf, text, null]
- *                     attachment_name:
- *                       type: string
- *                       nullable: true
- *                       example: q3-report.pdf
- *                     created_at:
- *                       type: string
- *                       format: date-time
+ *                   allOf:
+ *                     - $ref: '#/components/schemas/Message'
+ *                   description: Present on "done" lines — the saved assistant message record.
  *                 model_used:
  *                   type: string
- *                   example: gemma4b:latest
- *                   description: The Ollama model that generated the response.
+ *                   example: gemma3:4b
+ *                   description: Present on "done" lines — the Ollama model that generated the response.
  *                 tokens_used:
  *                   type: integer
  *                   example: 142
+ *                   description: Present on "done" lines.
  *                 complexity:
  *                   type: string
  *                   enum: [simple, moderate, complex]
- *                   description: Complexity classification of the user's message, used for model routing.
+ *                   description: Present on "done" lines — complexity classification used for model routing.
+ *                 used_web_search:
+ *                   type: boolean
+ *                   description: Present on "done" lines.
+ *                 used_knowledge_base:
+ *                   type: boolean
+ *                   description: Present on "done" lines.
+ *                 access:
+ *                   type: object
+ *                   description: Present on "done" lines — replaces the old X-Access-* headers.
+ *                   properties:
+ *                     seconds_remaining:
+ *                       type: integer
+ *                     seconds_used:
+ *                       type: integer
+ *                     total_allowed:
+ *                       type: integer
+ *                     window_expires_at:
+ *                       type: string
+ *                       format: date-time
+ *                 error:
+ *                   type: string
+ *                   description: Present on "error" lines.
  *       400:
  *         description: Message content missing, file too large, or unsupported file type
  *         content:
@@ -266,6 +274,10 @@ messagesRouter.post(
   checkAccess,
   upload.single('file'),
   async (req, res) => {
+    // Set once the NDJSON stream has actually started (headers flushed) —
+    // after that point, failures can no longer become a clean status-code
+    // response and must instead be reported as an error line on the stream.
+    let streamStarted = false;
     try {
       const startTime = Date.now();
       const content = req.body?.content as string | undefined;
@@ -295,7 +307,7 @@ messagesRouter.post(
 
         if (attachment.type === 'unsupported') {
           return res.status(400).json({
-            error: `Unsupported file type: ${req.file.mimetype}. Supported: images (jpeg, png, gif, webp), PDFs, and text files.`,
+            error: `Unsupported file type: ${req.file.mimetype}. Supported: images (jpeg, png, gif, webp), PDFs, Word documents (.docx), and text files.`,
           });
         }
 
@@ -356,26 +368,58 @@ messagesRouter.post(
 
       // Small local models can't reliably know when they need current info, so the
       // decision to search is made deterministically (see shouldSearch) rather than
-      // left to the model. Results are injected only into this call's prompt, not
-      // persisted to the stored message.
+      // left to the model. Results/matches are injected only into this call's
+      // prompt, not persisted to the stored message.
       let usedWebSearch = false;
-      let chatHistory = historyRows;
+      let usedKnowledgeBase = false;
+      const contextBlocks: string[] = [];
+
       if (shouldSearch(content)) {
         const results = await webSearch(content);
         if (results.length > 0) {
           usedWebSearch = true;
-          const lastMessage = historyRows[historyRows.length - 1];
-          chatHistory = [
-            ...historyRows.slice(0, -1),
-            {
-              ...lastMessage,
-              content: `${lastMessage.content}\n\n[Web search results for reference, use if relevant]\n${formatSearchResults(results)}`,
-            },
-          ];
+          contextBlocks.push(
+            `[Web search results for reference, use if relevant]\n${formatSearchResults(results)}`,
+          );
         }
       }
 
-      const { content: assistantContent, tokensUsed } = await chat(chatHistory, model, chatOptions);
+      const kbMatches = await queryKnowledgeBase(content);
+      if (kbMatches.length > 0) {
+        usedKnowledgeBase = true;
+        contextBlocks.push(
+          `[Knowledge base excerpts for reference, use if relevant]\n${formatKnowledgeBaseMatches(kbMatches)}`,
+        );
+      }
+
+      let chatHistory = historyRows;
+      if (contextBlocks.length > 0) {
+        const lastMessage = historyRows[historyRows.length - 1];
+        chatHistory = [
+          ...historyRows.slice(0, -1),
+          { ...lastMessage, content: `${lastMessage.content}\n\n${contextBlocks.join('\n\n')}` },
+        ];
+      }
+
+      // From here on the response is a stream of newline-delimited JSON
+      // objects, not a single JSON body: {"type":"chunk","content":"..."}
+      // per token, then one {"type":"done", ...} with the full metadata, or
+      // {"type":"error", ...} if generation fails after streaming began.
+      res.writeHead(200, {
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no',
+      });
+      streamStarted = true;
+
+      const { content: assistantContent, tokensUsed } = await chatStream(
+        chatHistory,
+        model,
+        (delta) => {
+          res.write(JSON.stringify({ type: 'chunk', content: delta }) + '\n');
+        },
+        chatOptions,
+      );
       const modelUsed = model;
 
       const assistantResult = await query(
@@ -411,26 +455,60 @@ messagesRouter.post(
       const elapsedSeconds = (Date.now() - startTime) / 1000;
       await addUsage(userId, elapsedSeconds);
 
-      // Refresh access headers now that usage has been recorded
+      // Headers are already flushed by this point (streaming started above),
+      // so post-generation access state goes in the final stream line
+      // instead of the old X-Access-* response headers.
       const accessState = await getRemainingSeconds(userId);
-      res.setHeader('X-Access-Seconds-Remaining', accessState.secondsRemaining);
-      res.setHeader('X-Access-Seconds-Used', accessState.secondsUsed);
-      res.setHeader('X-Access-Total-Allowed', accessState.totalAllowed);
-      res.setHeader('X-Access-Window-Expires-At', accessState.windowExpiresAt.toISOString());
 
       logger.info(
-        { userId, conversationId, model: modelUsed, complexity, tokensUsed, elapsedSeconds, usedWebSearch },
+        {
+          userId,
+          conversationId,
+          model: modelUsed,
+          complexity,
+          tokensUsed,
+          elapsedSeconds,
+          usedWebSearch,
+          usedKnowledgeBase,
+        },
         'Message processed',
       );
 
-      return res.status(201).json({
-        message: assistantMessage,
-        model_used: modelUsed,
-        tokens_used: tokensUsed,
-        complexity,
-        used_web_search: usedWebSearch,
-      });
+      res.write(
+        JSON.stringify({
+          type: 'done',
+          message: assistantMessage,
+          model_used: modelUsed,
+          tokens_used: tokensUsed,
+          complexity,
+          used_web_search: usedWebSearch,
+          used_knowledge_base: usedKnowledgeBase,
+          access: {
+            seconds_remaining: accessState.secondsRemaining,
+            seconds_used: accessState.secondsUsed,
+            total_allowed: accessState.totalAllowed,
+            window_expires_at: accessState.windowExpiresAt.toISOString(),
+          },
+        }) + '\n',
+      );
+      return res.end();
     } catch (err) {
+      // Once the stream has started, headers are already sent — a failure
+      // can no longer become a clean status-code response, only an error
+      // line on the still-open connection.
+      if (streamStarted) {
+        logger.error(
+          {
+            err: { message: (err as Error).message, stack: (err as Error).stack },
+            conversationId: req.params.conversationId,
+            userId: req.user?.id,
+          },
+          'POST /conversations/:conversationId/messages error mid-stream',
+        );
+        res.write(JSON.stringify({ type: 'error', error: 'Internal server error' }) + '\n');
+        return res.end();
+      }
+
       if ((err as NodeJS.ErrnoException).message?.includes('File too large')) {
         return res.status(400).json({ error: 'File too large. Maximum size is 20 MB.' });
       }

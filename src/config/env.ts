@@ -69,4 +69,46 @@ export const config = {
     "CHROMA_COLLECTION_NAME",
     "web_search_cache",
   ),
+  // Knowledge base: admin-uploaded documents plus the daily news/sports/etc
+  // digest, retrieved by embedding similarity and injected into chat prompts.
+  chromaKnowledgeBaseCollectionName: optionalEnv(
+    "CHROMA_KNOWLEDGE_BASE_COLLECTION_NAME",
+    "knowledge_base",
+  ),
+  // Minimum cosine similarity for a knowledge base chunk to be considered
+  // relevant to a user's message. Empirically, with nomic-embed-text and
+  // proper search_query/search_document task prefixes, genuinely relevant
+  // question/passage pairs score ~0.40-0.48 while unrelated ones score
+  // ~0.0 or negative — 0.35 sits comfortably above the noise floor with
+  // margin below real matches. Much lower than the search cache threshold
+  // because this compares a question against document content (asymmetric),
+  // not two near-identical queries (symmetric).
+  knowledgeBaseSimilarityThreshold: parseFloat(
+    optionalEnv("KNOWLEDGE_BASE_SIMILARITY_THRESHOLD", "0.35"),
+  ),
+  // Max knowledge base chunks injected into a single chat prompt.
+  knowledgeBaseTopK: parseInt(optionalEnv("KNOWLEDGE_BASE_TOP_K", "3"), 10),
+  // Topics the daily digest job crawls and refreshes in the knowledge base.
+  dailyDigestTopics: optionalEnv(
+    "DAILY_DIGEST_TOPICS",
+    "top news headlines today,sports scores and news today,arts and entertainment news today",
+  )
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean),
+  // Cron schedule (node-cron/crontab syntax) for refreshing the daily digest.
+  dailyDigestCronSchedule: optionalEnv("DAILY_DIGEST_CRON_SCHEDULE", "0 6 * * *"),
+  // The Ollama host is a single CPU-bound instance that can only run one
+  // model at a time — concurrent requests don't parallelize, they thrash
+  // (we've seen it OOM-kill under load). Every call funnels through a queue
+  // capped at this concurrency so requests wait their turn instead.
+  ollamaMaxConcurrency: parseInt(optionalEnv("OLLAMA_MAX_CONCURRENCY", "1"), 10),
+  // Hard deadline for small, fixed-size Ollama calls (classify/embed/title —
+  // all use a tiny num_predict), so one wedged request can't block the
+  // queue, and therefore every other user, forever.
+  ollamaQuickTimeoutMs: parseInt(optionalEnv("OLLAMA_QUICK_TIMEOUT_MS", "30000"), 10),
+  // Hard deadline for full chat generation. Generous because this CPU-bound
+  // host has been observed to generate at well under 1 token/sec — this is
+  // a safety net against a true hang, not a bound on normal slowness.
+  ollamaChatTimeoutMs: parseInt(optionalEnv("OLLAMA_CHAT_TIMEOUT_MS", "600000"), 10),
 };

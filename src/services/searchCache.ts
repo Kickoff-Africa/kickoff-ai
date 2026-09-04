@@ -4,10 +4,9 @@
 // are worded differently but mean the same thing (e.g. "who's the current
 // president of Nigeria" vs "current Nigerian president"), so paraphrased
 // questions still hit the cache instead of triggering a fresh crawl.
-import { ChromaClient, type Collection, type EmbeddingFunction } from "chromadb";
 import { config } from "../config/env";
 import { logger } from "../config/logger";
-import { embed } from "./ollama";
+import { getChromaCollection } from "./chroma";
 import type { WebSearchResult } from "./webSearch";
 
 type CachedMetadata = {
@@ -16,25 +15,8 @@ type CachedMetadata = {
   createdAt: string; // ISO timestamp
 };
 
-const ollamaEmbeddingFunction: EmbeddingFunction = {
-  name: `ollama-${config.ollamaEmbedModel}`,
-  async generate(texts: string[]): Promise<number[][]> {
-    return Promise.all(texts.map((text) => embed(text)));
-  },
-  defaultSpace: () => "cosine",
-};
-
-const client = new ChromaClient({ path: config.chromaUrl });
-
-let collectionPromise: Promise<Collection> | null = null;
-function getCollection(): Promise<Collection> {
-  if (!collectionPromise) {
-    collectionPromise = client.getOrCreateCollection({
-      name: config.chromaCollectionName,
-      embeddingFunction: ollamaEmbeddingFunction,
-    });
-  }
-  return collectionPromise;
+function getCollection() {
+  return getChromaCollection(config.chromaCollectionName);
 }
 
 function normalizeQueryKey(searchQuery: string): string {
