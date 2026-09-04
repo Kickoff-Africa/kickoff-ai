@@ -96,7 +96,11 @@ adminRouter.get('/users', async (_req: Request, res: Response): Promise<void> =>
  *   get:
  *     tags: [Admin]
  *     summary: List all conversations for any user
- *     description: Returns all conversations for a given user. No ownership restriction — admin can inspect any user. Admin only.
+ *     description: |
+ *       Returns all conversations for a given user, including ones the user has deleted from
+ *       their own view — deletion is a soft delete (see `DELETE /conversations/{id}`), so admins
+ *       retain full visibility. Check `deleted_at` to tell which. No ownership restriction —
+ *       admin can inspect any user. Admin only.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -114,7 +118,15 @@ adminRouter.get('/users', async (_req: Request, res: Response): Promise<void> =>
  *             schema:
  *               type: array
  *               items:
- *                 $ref: '#/components/schemas/Conversation'
+ *                 allOf:
+ *                   - $ref: '#/components/schemas/Conversation'
+ *                   - type: object
+ *                     properties:
+ *                       deleted_at:
+ *                         type: string
+ *                         format: date-time
+ *                         nullable: true
+ *                         description: When the owning user deleted this conversation from their own view, if they did.
  *       401:
  *         description: Unauthorized
  *         content:
@@ -143,6 +155,7 @@ adminRouter.get('/users/:userId/conversations', async (req: Request, res: Respon
         c.id,
         c.title,
         c.created_at,
+        c.deleted_at,
         (SELECT MAX(created_at) FROM messages WHERE conversation_id = c.id) AS last_message_at
       FROM conversations c
       WHERE c.user_id = $1

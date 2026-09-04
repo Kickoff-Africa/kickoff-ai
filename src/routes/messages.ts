@@ -290,7 +290,7 @@ messagesRouter.post(
       const { conversationId } = req.params;
 
       const convResult = await query(
-        `SELECT id FROM conversations WHERE id = $1 AND user_id = $2`,
+        `SELECT id FROM conversations WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
         [conversationId, userId],
       );
 

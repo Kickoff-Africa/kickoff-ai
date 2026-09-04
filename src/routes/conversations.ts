@@ -91,7 +91,7 @@ conversationsRouter.get('/', authenticate, async (req, res) => {
       `SELECT c.id, c.title, c.created_at,
               (SELECT MAX(m.created_at) FROM messages m WHERE m.conversation_id = c.id) AS last_message_at
        FROM conversations c
-       WHERE c.user_id = $1
+       WHERE c.user_id = $1 AND c.deleted_at IS NULL
        ORDER BY c.updated_at DESC`,
       [userId],
     );
@@ -168,7 +168,7 @@ conversationsRouter.get('/:id', authenticate, async (req, res) => {
     const conversationId = req.params.id;
 
     const convResult = await query(
-      `SELECT * FROM conversations WHERE id = $1 AND user_id = $2`,
+      `SELECT * FROM conversations WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
       [conversationId, userId],
     );
 
@@ -204,6 +204,73 @@ conversationsRouter.get('/:id', authenticate, async (req, res) => {
     });
   } catch (err) {
     logger.error({ err, conversationId: req.params.id }, 'GET /conversations/:id error');
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * @openapi
+ * /conversations/{id}:
+ *   delete:
+ *     tags: [Conversations]
+ *     summary: Delete a conversation
+ *     description: |
+ *       Removes a conversation from the authenticated user's own view. This is a soft delete —
+ *       the conversation and its messages are kept for admin visibility (see `GET
+ *       /admin/users/{userId}/conversations`), they just stop appearing for the user and can no
+ *       longer be fetched or messaged by them.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       204:
+ *         description: Conversation deleted
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Conversation not found (or already deleted)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+conversationsRouter.delete('/:id', authenticate, async (req, res) => {
+  try {
+    const userId = req.user!.id;
+    const conversationId = req.params.id;
+
+    const result = await query(
+      `UPDATE conversations
+       SET deleted_at = NOW()
+       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+       RETURNING id`,
+      [conversationId, userId],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    logger.info({ conversationId, userId }, 'Conversation deleted');
+    return res.status(204).send();
+  } catch (err) {
+    logger.error({ err, conversationId: req.params.id }, 'DELETE /conversations/:id error');
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
