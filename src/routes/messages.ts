@@ -7,6 +7,7 @@ import { checkAccess } from '../middleware/checkAccess';
 import { classifyComplexity, getModelForComplexity, chatStream, generateConversationTitle, OllamaUnavailableError } from '../services/ollama';
 import { shouldSearch, webSearch, formatSearchResults } from '../services/webSearch';
 import { queryKnowledgeBase, formatKnowledgeBaseMatches } from '../services/knowledgeBase';
+import { registerGeneration, unregisterGeneration, cancelGeneration } from '../services/activeGenerations';
 import { processFile, buildMessageContent } from '../services/fileProcessor';
 import { uploadToCloudinary } from '../services/cloudinary';
 import { addUsage, getRemainingSeconds } from '../services/access';
@@ -278,6 +279,10 @@ messagesRouter.post(
     // after that point, failures can no longer become a clean status-code
     // response and must instead be reported as an error line on the stream.
     let streamStarted = false;
+    // Declared here (rather than where it's created, deeper in the try
+    // block) so the finally block below can always reach it to unregister,
+    // regardless of which return/throw path this request takes.
+    let generationController: AbortController | undefined;
     try {
       const startTime = Date.now();
       const content = req.body?.content as string | undefined;
@@ -287,7 +292,7 @@ messagesRouter.post(
       }
 
       const userId = req.user!.id;
-      const { conversationId } = req.params;
+      const conversationId = req.params.conversationId as string;
 
       const convResult = await query(
         `SELECT id FROM conversations WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
@@ -354,9 +359,17 @@ messagesRouter.post(
 
       const classifiedComplexity = await classifyComplexity(content);
 
-      const chatOptions = attachment?.type === 'image' && attachment.base64
-        ? { imageBase64: attachment.base64, imageMimeType: attachment.mimeType ?? 'image/jpeg' }
-        : undefined;
+      // Registered now so a POST to /conversations/:id/cancel can abort this
+      // generation once it starts — see activeGenerations.ts. Cleared in the
+      // finally block below regardless of how this request ends.
+      generationController = registerGeneration(conversationId);
+
+      const chatOptions = {
+        signal: generationController.signal,
+        ...(attachment?.type === 'image' && attachment.base64
+          ? { imageBase64: attachment.base64, imageMimeType: attachment.mimeType ?? 'image/jpeg' }
+          : {}),
+      };
 
       // Small local models can't reliably know when they need current info, so the
       // decision to search is made deterministically (see shouldSearch) rather than
@@ -422,7 +435,7 @@ messagesRouter.post(
       });
       streamStarted = true;
 
-      const { content: assistantContent, tokensUsed } = await chatStream(
+      const { content: assistantContent, tokensUsed, cancelled } = await chatStream(
         chatHistory,
         model,
         (delta) => {
@@ -431,6 +444,27 @@ messagesRouter.post(
         chatOptions,
       );
       const modelUsed = model;
+
+      // A cancel with nothing generated yet leaves no trace — same as if the
+      // message had never been sent, rather than saving an empty assistant bubble.
+      if (cancelled && !assistantContent.trim()) {
+        const elapsedSeconds = (Date.now() - startTime) / 1000;
+        await addUsage(userId, elapsedSeconds);
+        const accessState = await getRemainingSeconds(userId);
+        logger.info({ userId, conversationId, elapsedSeconds }, 'Message generation cancelled before any content');
+        res.write(
+          JSON.stringify({
+            type: 'cancelled',
+            access: {
+              seconds_remaining: accessState.secondsRemaining,
+              seconds_used: accessState.secondsUsed,
+              total_allowed: accessState.totalAllowed,
+              window_expires_at: accessState.windowExpiresAt.toISOString(),
+            },
+          }) + '\n',
+        );
+        return res.end();
+      }
 
       const assistantResult = await query(
         `INSERT INTO messages (conversation_id, role, content, model_used, tokens_used)
@@ -480,13 +514,14 @@ messagesRouter.post(
           elapsedSeconds,
           usedWebSearch,
           usedKnowledgeBase,
+          cancelled,
         },
-        'Message processed',
+        cancelled ? 'Message generation cancelled (partial content kept)' : 'Message processed',
       );
 
       res.write(
         JSON.stringify({
-          type: 'done',
+          type: cancelled ? 'cancelled' : 'done',
           message: assistantMessage,
           model_used: modelUsed,
           tokens_used: tokensUsed,
@@ -507,6 +542,18 @@ messagesRouter.post(
       // can no longer become a clean status-code response, only an error
       // line on the still-open connection.
       if (streamStarted) {
+        // Rare edge case: a cancel that lands before Ollama's response body
+        // even arrives throws instead of resolving gracefully (chatStream's
+        // graceful-cancel handling only covers the read loop). Still worth
+        // reporting as a cancellation rather than a generic error.
+        if (generationController?.signal.aborted) {
+          logger.info(
+            { conversationId: req.params.conversationId, userId: req.user?.id },
+            'Message generation cancelled before streaming began',
+          );
+          res.write(JSON.stringify({ type: 'cancelled' }) + '\n');
+          return res.end();
+        }
         logger.error(
           {
             err: { message: (err as Error).message, stack: (err as Error).stack },
@@ -541,6 +588,84 @@ messagesRouter.post(
           'POST /conversations/:conversationId/messages error',
         );
       return res.status(500).json({ error: 'Internal server error' });
+    } finally {
+      if (generationController) {
+        unregisterGeneration(req.params.conversationId as string, generationController);
+      }
     }
   },
 );
+
+/**
+ * @openapi
+ * /conversations/{conversationId}/cancel:
+ *   post:
+ *     tags: [Messages]
+ *     summary: Cancel an in-progress message generation
+ *     description: |
+ *       Stops the assistant's response to this conversation's most recent message, if it's still
+ *       generating. Whatever content had already streamed is saved as the assistant's message
+ *       (matching "stop generating" in most chat products) — unless nothing had generated yet, in
+ *       which case no message is saved. The open streaming response for that message (see `POST
+ *       /conversations/{conversationId}/messages`) ends with a `{"type":"cancelled",...}` line
+ *       instead of `"done"`.
+ *
+ *       No-op-safe to call when nothing is in flight (e.g. it already finished) — returns 404
+ *       rather than an error.
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: conversationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       204:
+ *         description: Generation cancelled
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       404:
+ *         description: Conversation not found, or nothing is currently generating for it
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+messagesRouter.post('/:conversationId/cancel', authenticate, async (req, res) => {
+  try {
+    const userId = req.user!.id;
+    const conversationId = req.params.conversationId as string;
+
+    const convResult = await query(
+      `SELECT id FROM conversations WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+      [conversationId, userId],
+    );
+
+    if (convResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    const cancelled = cancelGeneration(conversationId);
+    if (!cancelled) {
+      return res.status(404).json({ error: 'No message is currently generating for this conversation' });
+    }
+
+    logger.info({ conversationId, userId }, 'Message generation cancel requested');
+    return res.status(204).send();
+  } catch (err) {
+    logger.error({ err, conversationId: req.params.conversationId }, 'POST /conversations/:conversationId/cancel error');
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});

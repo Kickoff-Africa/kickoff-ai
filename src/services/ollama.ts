@@ -40,14 +40,16 @@ export function getModelForComplexity(complexity: Complexity): string {
   }
 }
 
-// One request attempt, bounded by a hard deadline so a wedged request can't
-// hold its queue slot — and therefore block every other user — forever.
-async function fetchOllamaOnce(path: string, body: unknown, timeoutMs: number): Promise<Response> {
+// One request attempt, bounded by whatever deadline/cancellation `signal`
+// represents — callers build that signal (see postOllama and chatStream)
+// since a quick call only needs a timeout, while chatStream also needs to
+// react to a caller-initiated cancellation.
+async function fetchOllamaOnce(path: string, body: unknown, signal: AbortSignal): Promise<Response> {
   const res = await fetch(`${OLLAMA_BASE_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
+    signal,
   });
 
   if (!res.ok) {
@@ -58,16 +60,23 @@ async function fetchOllamaOnce(path: string, body: unknown, timeoutMs: number): 
 }
 
 // Retries once on network error, timeout, or non-2xx response (e.g. the
-// model server was killed and is still restarting). Not queued — callers
-// decide the queuing boundary, since a streaming caller needs the queue slot
-// held well past the point this function returns.
-async function postOllamaWithRetry(path: string, body: unknown, timeoutMs: number): Promise<Response> {
+// model server was killed and is still restarting) — but not if `signal` is
+// already aborted, since that means the caller cancelled and a retry would
+// just waste the backoff delay repeating a request nobody wants anymore.
+// Not queued — callers decide the queuing boundary, since a streaming caller
+// needs the queue slot held well past the point this function returns.
+async function postOllamaWithRetry(path: string, body: unknown, signal: AbortSignal): Promise<Response> {
   let lastError: string;
 
   for (let attempt = 0; attempt < 2; attempt++) {
+    if (signal.aborted) {
+      throw signal.reason instanceof Error ? signal.reason : new Error("Request aborted");
+    }
+
     try {
-      return await fetchOllamaOnce(path, body, timeoutMs);
+      return await fetchOllamaOnce(path, body, signal);
     } catch (err) {
+      if (signal.aborted) throw err;
       lastError = (err as Error).message;
     }
 
@@ -86,7 +95,9 @@ async function postOllamaWithRetry(path: string, body: unknown, timeoutMs: numbe
 // stream:false request Ollama has already finished all generation by the
 // time headers come back, so no meaningful work happens outside the queue.
 async function postOllama(path: string, body: unknown): Promise<Response> {
-  return withOllamaQueue(() => postOllamaWithRetry(path, body, config.ollamaQuickTimeoutMs));
+  return withOllamaQueue(() =>
+    postOllamaWithRetry(path, body, AbortSignal.timeout(config.ollamaQuickTimeoutMs)),
+  );
 }
 
 // ---------- classifyComplexity ----------
@@ -189,8 +200,8 @@ export async function chatStream(
   messages: ChatMessage[],
   model: string,
   onDelta: (delta: string) => void,
-  options?: { imageBase64?: string; imageMimeType?: string },
-): Promise<{ content: string; tokensUsed: number }> {
+  options?: { imageBase64?: string; imageMimeType?: string; signal?: AbortSignal },
+): Promise<{ content: string; tokensUsed: number; cancelled: boolean }> {
   const ollamaMessages = messages.map((m, i) => {
     const isLast = i === messages.length - 1;
     if (isLast && m.role === "user" && options?.imageBase64) {
@@ -204,8 +215,16 @@ export async function chatStream(
   });
 
   const chosenModel = options?.imageBase64 ? visionModel() : model;
+  const cancelSignal = options?.signal;
 
   return withOllamaQueue(async () => {
+    // Two independent reasons a request can be cut short: the hard timeout
+    // (a real failure — the host is wedged), and a caller-initiated cancel
+    // (the user hit "stop" — not a failure at all). Both raise AbortError,
+    // so cancelSignal.aborted is checked below to tell them apart.
+    const timeoutSignal = AbortSignal.timeout(config.ollamaChatTimeoutMs);
+    const signal = cancelSignal ? AbortSignal.any([timeoutSignal, cancelSignal]) : timeoutSignal;
+
     const res = await postOllamaWithRetry(
       "/api/chat",
       {
@@ -219,7 +238,7 @@ export async function chatStream(
         // without the latency cost a bigger model would carry.
         options: { temperature: 0.35, num_predict: 4096 },
       },
-      config.ollamaChatTimeoutMs,
+      signal,
     );
 
     if (!res.body) {
@@ -233,37 +252,48 @@ export async function chatStream(
     let promptEvalCount = 0;
     let evalCount = 0;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      // Ollama streams newline-delimited JSON objects; a chunk boundary can
-      // land mid-line, so buffer any trailing partial line until it's complete.
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
+        // Ollama streams newline-delimited JSON objects; a chunk boundary can
+        // land mid-line, so buffer any trailing partial line until it's complete.
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
 
-      for (const line of lines) {
-        if (!line.trim()) continue;
+        for (const line of lines) {
+          if (!line.trim()) continue;
 
-        const chunk = JSON.parse(line) as {
-          message?: { content?: string };
-          done?: boolean;
-          prompt_eval_count?: number;
-          eval_count?: number;
-        };
+          const chunk = JSON.parse(line) as {
+            message?: { content?: string };
+            done?: boolean;
+            prompt_eval_count?: number;
+            eval_count?: number;
+          };
 
-        if (chunk.message?.content) {
-          fullContent += chunk.message.content;
-          onDelta(chunk.message.content);
-        }
-        if (chunk.done) {
-          promptEvalCount = chunk.prompt_eval_count ?? 0;
-          evalCount = chunk.eval_count ?? 0;
+          if (chunk.message?.content) {
+            fullContent += chunk.message.content;
+            onDelta(chunk.message.content);
+          }
+          if (chunk.done) {
+            promptEvalCount = chunk.prompt_eval_count ?? 0;
+            evalCount = chunk.eval_count ?? 0;
+          }
         }
       }
+    } catch (err) {
+      // A genuine cancellation ends the stream gracefully with whatever
+      // content had already generated, matching how "stop generating"
+      // behaves in most chat products — a timeout or network failure still
+      // throws, since that's an actual error, not a user's choice to stop.
+      if (cancelSignal?.aborted) {
+        return { content: fullContent, tokensUsed: promptEvalCount + evalCount, cancelled: true };
+      }
+      throw err;
     }
 
-    return { content: fullContent, tokensUsed: promptEvalCount + evalCount };
+    return { content: fullContent, tokensUsed: promptEvalCount + evalCount, cancelled: false };
   });
 }
