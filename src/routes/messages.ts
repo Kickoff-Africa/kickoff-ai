@@ -114,23 +114,37 @@ const upload = multer({
  *         for (const line of lines) {
  *           if (!line.trim()) continue
  *           const event = JSON.parse(line)
- *           // event.type: 'chunk' | 'done' | 'error'
+ *           // event.type: 'chunk' | 'done' | 'cancelled' | 'error'
  *         }
  *       }
  *       ```
  *
- *       Three line shapes appear on the stream:
+ *       Four line shapes appear on the stream:
  *       - `{"type":"chunk","content":"..."}` — one per generated token/fragment, in order.
  *       - `{"type":"done", message, model_used, tokens_used, complexity, used_web_search,
  *         used_knowledge_base, access}` — exactly once, at the end of a successful generation.
  *         `access` carries the same fields the old `X-Access-*` response headers used to
  *         (`seconds_remaining`, `seconds_used`, `total_allowed`, `window_expires_at`) — those
  *         headers are gone, since headers can't be set after the stream has already started.
+ *       - `{"type":"cancelled", message?, model_used?, tokens_used?, complexity?, used_web_search?,
+ *         used_knowledge_base?, access}` — sent instead of `"done"` when `POST
+ *         /conversations/{conversationId}/cancel` stopped this generation. Same shape as `"done"`,
+ *         except `message` (and the other generation fields) are only present if some content had
+ *         already streamed before the cancel landed — a cancel with nothing generated yet leaves no
+ *         trace, same as if the message had never been sent. When `message` is present, its
+ *         `content` has a trailing `\n\n[Response stopped]` appended, so later turns in the
+ *         conversation know the cutoff was intentional rather than a truncation bug.
  *       - `{"type":"error","error":"..."}` — generation failed after streaming had already begun,
  *         so the failure can no longer become a clean HTTP status code. This is only possible once
  *         at least one `chunk` line may have already been sent. Failures caught *before* streaming
  *         starts (bad input, missing conversation, unsupported file, Ollama unreachable) still
  *         return a normal JSON error response with the appropriate 4xx/5xx status — see below.
+ *
+ *       ## Cancelling a generation
+ *
+ *       `POST /conversations/{conversationId}/cancel` stops the in-progress generation for that
+ *       conversation (see the dedicated endpoint below) — the open streaming response above ends
+ *       with a `"cancelled"` line instead of `"done"`.
  *
  *       ## Auto-titling
  *
@@ -182,39 +196,44 @@ const upload = multer({
  *           application/x-ndjson:
  *             schema:
  *               type: object
- *               description: One of {type:"chunk"}, {type:"done"}, or {type:"error"} — see above.
+ *               description: One of {type:"chunk"}, {type:"done"}, {type:"cancelled"}, or {type:"error"} — see above.
  *               properties:
  *                 type:
  *                   type: string
- *                   enum: [chunk, done, error]
+ *                   enum: [chunk, done, cancelled, error]
  *                 content:
  *                   type: string
  *                   description: Present on "chunk" lines — a fragment of the assistant's reply.
  *                 message:
  *                   allOf:
  *                     - $ref: '#/components/schemas/Message'
- *                   description: Present on "done" lines — the saved assistant message record.
+ *                   description: |
+ *                     Present on "done" lines, and on "cancelled" lines if some content had
+ *                     already generated before the cancel (its `content` ends with
+ *                     "\n\n[Response stopped]" in that case).
  *                 model_used:
  *                   type: string
  *                   example: gemma3:4b
- *                   description: Present on "done" lines — the Ollama model that generated the response.
+ *                   description: Present on "done" lines, and on "cancelled" lines when `message` is present.
  *                 tokens_used:
  *                   type: integer
  *                   example: 142
- *                   description: Present on "done" lines.
+ *                   description: Present on "done" lines, and on "cancelled" lines when `message` is present.
  *                 complexity:
  *                   type: string
  *                   enum: [simple, moderate, complex]
- *                   description: Present on "done" lines — complexity classification used for model routing.
+ *                   description: |
+ *                     Present on "done" lines, and on "cancelled" lines when `message` is present —
+ *                     complexity classification used for model routing.
  *                 used_web_search:
  *                   type: boolean
- *                   description: Present on "done" lines.
+ *                   description: Present on "done" lines, and on "cancelled" lines when `message` is present.
  *                 used_knowledge_base:
  *                   type: boolean
- *                   description: Present on "done" lines.
+ *                   description: Present on "done" lines, and on "cancelled" lines when `message` is present.
  *                 access:
  *                   type: object
- *                   description: Present on "done" lines — replaces the old X-Access-* headers.
+ *                   description: Present on "done" and "cancelled" lines — replaces the old X-Access-* headers.
  *                   properties:
  *                     seconds_remaining:
  *                       type: integer
@@ -466,11 +485,20 @@ messagesRouter.post(
         return res.end();
       }
 
+      // A cancelled reply stored verbatim reads as a complete answer that
+      // just happens to stop mid-sentence — nothing marks it as intentional.
+      // We saw this confuse a later turn firsthand: the model ignored a
+      // follow-up instruction and just kept going with the cut-off story
+      // instead. Appending this marker to the stored content (not just shown
+      // to the user, but sent back as real conversation history on every
+      // future turn) tells later turns the cutoff was deliberate.
+      const contentToSave = cancelled ? `${assistantContent}\n\n[Response stopped]` : assistantContent;
+
       const assistantResult = await query(
         `INSERT INTO messages (conversation_id, role, content, model_used, tokens_used)
          VALUES ($1, 'assistant', $2, $3, $4)
          RETURNING id, role, content, model_used, tokens_used, created_at`,
-        [conversationId, assistantContent, modelUsed, tokensUsed],
+        [conversationId, contentToSave, modelUsed, tokensUsed],
       );
 
       const assistantMessage = assistantResult.rows[0];
@@ -481,7 +509,7 @@ messagesRouter.post(
       if (totalMessages <= 5) {
         const titleMessages = [
           ...historyRows,
-          { role: 'assistant' as const, content: assistantContent },
+          { role: 'assistant' as const, content: contentToSave },
         ].slice(0, 5);
         const generatedTitle = await generateConversationTitle(titleMessages);
         const title = generatedTitle ?? content.slice(0, 50) + (content.length > 50 ? '...' : '');
@@ -605,8 +633,10 @@ messagesRouter.post(
  *     description: |
  *       Stops the assistant's response to this conversation's most recent message, if it's still
  *       generating. Whatever content had already streamed is saved as the assistant's message
- *       (matching "stop generating" in most chat products) — unless nothing had generated yet, in
- *       which case no message is saved. The open streaming response for that message (see `POST
+ *       (matching "stop generating" in most chat products), with a trailing `\n\n[Response
+ *       stopped]` appended so later turns in the conversation know the cutoff was intentional
+ *       rather than a truncation bug — unless nothing had generated yet, in which case no message
+ *       is saved at all. The open streaming response for that message (see `POST
  *       /conversations/{conversationId}/messages`) ends with a `{"type":"cancelled",...}` line
  *       instead of `"done"`.
  *
