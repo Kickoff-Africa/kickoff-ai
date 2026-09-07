@@ -208,7 +208,17 @@ export async function chatStream(
   return withOllamaQueue(async () => {
     const res = await postOllamaWithRetry(
       "/api/chat",
-      { model: chosenModel, messages: ollamaMessages, stream: true, options: { num_predict: 4096 } },
+      {
+        model: chosenModel,
+        messages: ollamaMessages,
+        stream: true,
+        // Ollama's default temperature (0.8) favors variety over grounded,
+        // literal answers — fine for creative writing, but it makes small
+        // models more prone to rambling/incoherence on ordinary factual
+        // questions. 0.35 trades away some of that variety for consistency,
+        // without the latency cost a bigger model would carry.
+        options: { temperature: 0.35, num_predict: 4096 },
+      },
       config.ollamaChatTimeoutMs,
     );
 

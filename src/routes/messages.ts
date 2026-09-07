@@ -352,15 +352,7 @@ messagesRouter.post(
 
       const historyRows = historyResult.rows as Array<{ role: 'user' | 'assistant'; content: string }>;
 
-     const complexity = await classifyComplexity(content);
-       
-        const model = (attachment?.type === 'image')
-          ? getModelForComplexity('complex')
-          : getModelForComplexity(complexity);
-      logger.debug(
-        { conversationId, complexity, model, vision: attachment?.type === 'image' },
-        'Message classified and routed',
-      );
+      const classifiedComplexity = await classifyComplexity(content);
 
       const chatOptions = attachment?.type === 'image' && attachment.base64
         ? { imageBase64: attachment.base64, imageMimeType: attachment.mimeType ?? 'image/jpeg' }
@@ -391,6 +383,24 @@ messagesRouter.post(
           `[Knowledge base excerpts for reference, use if relevant]\n${formatKnowledgeBaseMatches(kbMatches)}`,
         );
       }
+
+      // Injected search/KB context means the model has to synthesize retrieved
+      // material, not just answer from what it already "knows" — a task the
+      // smallest model handles poorly even when the raw question reads as
+      // simple (e.g. "what's the weather today"). Step up to at least
+      // "moderate" whenever that's happening, so routing reflects the actual
+      // difficulty of the request rather than just the question's surface wording.
+      const complexity = contextBlocks.length > 0 && classifiedComplexity === 'simple'
+        ? 'moderate'
+        : classifiedComplexity;
+
+      const model = (attachment?.type === 'image')
+        ? getModelForComplexity('complex')
+        : getModelForComplexity(complexity);
+      logger.debug(
+        { conversationId, classifiedComplexity, complexity, model, vision: attachment?.type === 'image' },
+        'Message classified and routed',
+      );
 
       let chatHistory = historyRows;
       if (contextBlocks.length > 0) {
