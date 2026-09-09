@@ -392,6 +392,43 @@ messagesRouter.post(
       let usedKnowledgeBase = false;
       const contextBlocks: string[] = [];
 
+      // No classification step — every 1B-model routing decision this app made
+      // turned out to need the bigger model anyway (see the weather/search
+      // cases), and the classify call itself cost an extra Ollama round trip
+      // on every single message. Text always goes straight to the moderate
+      // model; only an image attachment still steps up further.
+      const model = (attachment?.type === 'image')
+        ? getModelForComplexity('complex')
+        : getModelForComplexity('moderate');
+      logger.debug(
+        { conversationId, model, vision: attachment?.type === 'image' },
+        'Message routed',
+      );
+
+      // From here on the response is a stream of newline-delimited JSON
+      // objects, not a single JSON body: {"type":"chunk","content":"..."}
+      // per token, then one {"type":"done", ...} with the full metadata, or
+      // {"type":"error", ...} if generation fails after streaming began.
+      //
+      // Flushed here — before the knowledge-base lookup below, not after it
+      // — deliberately. That lookup makes its own Ollama call (an embed,
+      // through the same queue as chat generation), so if it were placed
+      // before this point, queue contention from someone else's in-flight
+      // generation would delay it, and therefore delay the client seeing
+      // *anything at all* — the client can't tell "queued behind another
+      // request" apart from "hung" until some byte arrives. Nothing between
+      // here and the validation above can still fail with a different status
+      // code, so it's safe to open the connection now.
+      res.writeHead(200, {
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no',
+      });
+      // writeHead() alone doesn't put a single byte on the wire — Node only
+      // flushes headers on the first write()/end() call.
+      res.flushHeaders();
+      streamStarted = true;
+
       if (shouldSearch(content)) {
         const location = await geolocateIp(req.ip ?? '');
         const results = await webSearch(content, location ? formatLocation(location) : undefined);
@@ -411,19 +448,6 @@ messagesRouter.post(
         );
       }
 
-      // No classification step — every 1B-model routing decision this app made
-      // turned out to need the bigger model anyway (see the weather/search
-      // cases), and the classify call itself cost an extra Ollama round trip
-      // on every single message. Text always goes straight to the moderate
-      // model; only an image attachment still steps up further.
-      const model = (attachment?.type === 'image')
-        ? getModelForComplexity('complex')
-        : getModelForComplexity('moderate');
-      logger.debug(
-        { conversationId, model, vision: attachment?.type === 'image' },
-        'Message routed',
-      );
-
       let chatHistory = historyRows;
       if (contextBlocks.length > 0) {
         const lastMessage = historyRows[historyRows.length - 1];
@@ -432,17 +456,6 @@ messagesRouter.post(
           { ...lastMessage, content: `${lastMessage.content}\n\n${contextBlocks.join('\n\n')}` },
         ];
       }
-
-      // From here on the response is a stream of newline-delimited JSON
-      // objects, not a single JSON body: {"type":"chunk","content":"..."}
-      // per token, then one {"type":"done", ...} with the full metadata, or
-      // {"type":"error", ...} if generation fails after streaming began.
-      res.writeHead(200, {
-        'Content-Type': 'application/x-ndjson; charset=utf-8',
-        'Cache-Control': 'no-cache',
-        'X-Accel-Buffering': 'no',
-      });
-      streamStarted = true;
 
       const { content: assistantContent, tokensUsed, cancelled } = await chatStream(
         chatHistory,
@@ -497,16 +510,28 @@ messagesRouter.post(
       // once it's grown past the first 5 messages, leave the title alone.
       const totalMessages = historyRows.length + 1; // + the assistant reply just generated
       if (totalMessages <= 5) {
+        // Title generation is a second Ollama call — awaiting it here would
+        // tack its full duration onto every response in a new conversation,
+        // on top of the main generation that already just happened. It's not
+        // needed to show the user their answer, so it runs in the background
+        // instead: started now (overlapping with the addUsage/access-state
+        // calls below) and left to finish updating the title after this
+        // response has already ended.
         const titleMessages = [
           ...historyRows,
           { role: 'assistant' as const, content: contentToSave },
         ].slice(0, 5);
-        const generatedTitle = await generateConversationTitle(titleMessages);
-        const title = generatedTitle ?? content.slice(0, 50) + (content.length > 50 ? '...' : '');
-        await query(
-          `UPDATE conversations SET title = $1, updated_at = NOW() WHERE id = $2`,
-          [title, conversationId],
-        );
+        generateConversationTitle(titleMessages)
+          .then((generatedTitle) => {
+            const title = generatedTitle ?? content.slice(0, 50) + (content.length > 50 ? '...' : '');
+            return query(
+              `UPDATE conversations SET title = $1, updated_at = NOW() WHERE id = $2`,
+              [title, conversationId],
+            );
+          })
+          .catch((err) => {
+            logger.error({ err, conversationId }, 'Background title generation failed');
+          });
       } else {
         await query(
           `UPDATE conversations SET updated_at = NOW() WHERE id = $1`,
