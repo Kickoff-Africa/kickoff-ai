@@ -19,6 +19,14 @@ import { startDailyDigestJob } from './jobs/dailyDigest';
 
 export const app = express();
 
+// Production sits behind Coolify's reverse proxy, so without this Express
+// sees the proxy's own internal address as the client IP on every request
+// (confirmed in production logs: remoteAddress was the Docker-internal
+// ::ffff:10.0.1.19 on every request) rather than the real client — trusting
+// the proxy is what makes `req.ip` resolve from X-Forwarded-For instead.
+// Needed for IP-based geolocation (see routes/messages.ts).
+app.set('trust proxy', true);
+
 const corsOptions: cors.CorsOptions = {
   origin: '*',
   allowedHeaders: ['Content-Type', 'Authorization'],

@@ -145,19 +145,29 @@ export async function crawlForDigest(searchQuery: string): Promise<WebSearchResu
 }
 
 // ---------- public entry point ----------
-export async function webSearch(searchQuery: string): Promise<WebSearchResult[]> {
+// `locationHint` (e.g. "Lagos, Lagos, Nigeria", from geolocating the
+// requesting user's IP — see routes/messages.ts) is appended to the query
+// sent to search, not the user's original message. A search engine has no
+// way to know "today" means Lagos for this particular request otherwise —
+// left unqualified, results reflect wherever the crawling server itself is
+// hosted, not the user asking. Folding it into the effective query here also
+// means the semantic cache above naturally becomes location-aware for free,
+// since the cache key is this same enriched text, not the raw question.
+export async function webSearch(searchQuery: string, locationHint?: string): Promise<WebSearchResult[]> {
+  const effectiveQuery = locationHint ? `${searchQuery} in ${locationHint}` : searchQuery;
+
   try {
-    const cached = await getCachedResults(searchQuery);
+    const cached = await getCachedResults(effectiveQuery);
     if (cached) return cached;
   } catch (err) {
     logger.error({ err: (err as Error).message }, "Web search cache lookup failed");
   }
 
-  const { results, source } = await crawlWithFallback(searchQuery);
+  const { results, source } = await crawlWithFallback(effectiveQuery);
 
   if (results.length > 0) {
     try {
-      await setCachedResults(searchQuery, source, results);
+      await setCachedResults(effectiveQuery, source, results);
     } catch (err) {
       logger.error({ err: (err as Error).message }, "Web search cache write failed");
     }

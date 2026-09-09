@@ -100,38 +100,6 @@ async function postOllama(path: string, body: unknown): Promise<Response> {
   );
 }
 
-// ---------- classifyComplexity ----------
-export async function classifyComplexity(message: string): Promise<Complexity> {
-  let res: Response;
-  try {
-    res = await postOllama("/api/generate", {
-      model: simpleModel(),
-      prompt:
-        `Classify the complexity of the following user
-  message as exactly one word: ` +
-        `simple, moderate, or complex. Simple = factual
-  questions, greetings, basic tasks. ` +
-        `Moderate = analysis, comparison, multi-step
-  reasoning. ` +
-        `Complex = creative writing, deep research,
-  expert-level problems. ` +
-        `Respond with ONLY that single word, nothing
-  else.\n\nMessage: ${message}`,
-      stream: false,
-      options: { temperature: 0, num_predict: 5 },
-    });
-  } catch (err) {
-    console.error("Ollama classifyComplexity failed", (err as Error).message);
-    return "moderate";
-  }
-
-  const data = (await res.json()) as { response?: string };
-  const text = (data.response || "").trim().toLowerCase();
-  if (text === "simple" || text === "moderate" || text === "complex")
-    return text;
-  return "moderate";
-}
-
 // ---------- embed ----------
 export async function embed(text: string): Promise<number[]> {
   const res = await postOllama("/api/embed", {

@@ -4,10 +4,11 @@ import { query } from '../config/database';
 import { logger } from '../config/logger';
 import { authenticate } from '../middleware/authenticate';
 import { checkAccess } from '../middleware/checkAccess';
-import { classifyComplexity, getModelForComplexity, chatStream, generateConversationTitle, OllamaUnavailableError } from '../services/ollama';
+import { getModelForComplexity, chatStream, generateConversationTitle, OllamaUnavailableError } from '../services/ollama';
 import { shouldSearch, webSearch, formatSearchResults } from '../services/webSearch';
 import { queryKnowledgeBase, formatKnowledgeBaseMatches } from '../services/knowledgeBase';
 import { registerGeneration, unregisterGeneration, cancelGeneration } from '../services/activeGenerations';
+import { geolocateIp, formatLocation } from '../services/geolocation';
 import { processFile, buildMessageContent } from '../services/fileProcessor';
 import { uploadToCloudinary } from '../services/cloudinary';
 import { addUsage, getRemainingSeconds } from '../services/access';
@@ -88,11 +89,12 @@ const upload = multer({
  *       | Condition | Model used |
  *       |-----------|-----------|
  *       | Image attached | `OLLAMA_VISION_MODEL` |
- *       | Complex message (no image) | `OLLAMA_COMPLEX_MODEL` |
- *       | Moderate message (no image) | `OLLAMA_MODERATE_MODEL` |
- *       | Simple message (no image) | `OLLAMA_SIMPLE_MODEL` |
+ *       | No image | `OLLAMA_MODERATE_MODEL` |
  *
- *       Complexity is classified by an Ollama model before routing and is returned in the response.
+ *       Every text message goes straight to the same model — there's no per-message complexity
+ *       classification step (there used to be; it added an extra Ollama round trip to every
+ *       message and the smaller "simple" tier routinely produced worse answers than just always
+ *       using the moderate model, so it was removed).
  *
  *       ## Streaming response
  *
@@ -121,12 +123,12 @@ const upload = multer({
  *
  *       Four line shapes appear on the stream:
  *       - `{"type":"chunk","content":"..."}` — one per generated token/fragment, in order.
- *       - `{"type":"done", message, model_used, tokens_used, complexity, used_web_search,
+ *       - `{"type":"done", message, model_used, tokens_used, used_web_search,
  *         used_knowledge_base, access}` — exactly once, at the end of a successful generation.
  *         `access` carries the same fields the old `X-Access-*` response headers used to
  *         (`seconds_remaining`, `seconds_used`, `total_allowed`, `window_expires_at`) — those
  *         headers are gone, since headers can't be set after the stream has already started.
- *       - `{"type":"cancelled", message?, model_used?, tokens_used?, complexity?, used_web_search?,
+ *       - `{"type":"cancelled", message?, model_used?, tokens_used?, used_web_search?,
  *         used_knowledge_base?, access}` — sent instead of `"done"` when `POST
  *         /conversations/{conversationId}/cancel` stopped this generation. Same shape as `"done"`,
  *         except `message` (and the other generation fields) are only present if some content had
@@ -219,12 +221,6 @@ const upload = multer({
  *                   type: integer
  *                   example: 142
  *                   description: Present on "done" lines, and on "cancelled" lines when `message` is present.
- *                 complexity:
- *                   type: string
- *                   enum: [simple, moderate, complex]
- *                   description: |
- *                     Present on "done" lines, and on "cancelled" lines when `message` is present —
- *                     complexity classification used for model routing.
  *                 used_web_search:
  *                   type: boolean
  *                   description: Present on "done" lines, and on "cancelled" lines when `message` is present.
@@ -376,8 +372,6 @@ messagesRouter.post(
 
       const historyRows = historyResult.rows as Array<{ role: 'user' | 'assistant'; content: string }>;
 
-      const classifiedComplexity = await classifyComplexity(content);
-
       // Registered now so a POST to /conversations/:id/cancel can abort this
       // generation once it starts — see activeGenerations.ts. Cleared in the
       // finally block below regardless of how this request ends.
@@ -399,7 +393,8 @@ messagesRouter.post(
       const contextBlocks: string[] = [];
 
       if (shouldSearch(content)) {
-        const results = await webSearch(content);
+        const location = await geolocateIp(req.ip ?? '');
+        const results = await webSearch(content, location ? formatLocation(location) : undefined);
         if (results.length > 0) {
           usedWebSearch = true;
           contextBlocks.push(
@@ -416,22 +411,17 @@ messagesRouter.post(
         );
       }
 
-      // Injected search/KB context means the model has to synthesize retrieved
-      // material, not just answer from what it already "knows" — a task the
-      // smallest model handles poorly even when the raw question reads as
-      // simple (e.g. "what's the weather today"). Step up to at least
-      // "moderate" whenever that's happening, so routing reflects the actual
-      // difficulty of the request rather than just the question's surface wording.
-      const complexity = contextBlocks.length > 0 && classifiedComplexity === 'simple'
-        ? 'moderate'
-        : classifiedComplexity;
-
+      // No classification step — every 1B-model routing decision this app made
+      // turned out to need the bigger model anyway (see the weather/search
+      // cases), and the classify call itself cost an extra Ollama round trip
+      // on every single message. Text always goes straight to the moderate
+      // model; only an image attachment still steps up further.
       const model = (attachment?.type === 'image')
         ? getModelForComplexity('complex')
-        : getModelForComplexity(complexity);
+        : getModelForComplexity('moderate');
       logger.debug(
-        { conversationId, classifiedComplexity, complexity, model, vision: attachment?.type === 'image' },
-        'Message classified and routed',
+        { conversationId, model, vision: attachment?.type === 'image' },
+        'Message routed',
       );
 
       let chatHistory = historyRows;
@@ -537,7 +527,6 @@ messagesRouter.post(
           userId,
           conversationId,
           model: modelUsed,
-          complexity,
           tokensUsed,
           elapsedSeconds,
           usedWebSearch,
@@ -553,7 +542,6 @@ messagesRouter.post(
           message: assistantMessage,
           model_used: modelUsed,
           tokens_used: tokensUsed,
-          complexity,
           used_web_search: usedWebSearch,
           used_knowledge_base: usedKnowledgeBase,
           access: {
