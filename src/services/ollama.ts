@@ -1,6 +1,6 @@
 // src/services/ollama.ts
 import { config } from "../config/env";
-import { withOllamaQueue } from "./ollamaQueue";
+import { withOllamaQueue, withOllamaEmbedQueue } from "./ollamaQueue";
 
 const OLLAMA_BASE_URL = config.ollamaBaseUrl;
 const RETRY_DELAY_MS = 500;
@@ -90,19 +90,27 @@ async function postOllamaWithRetry(path: string, body: unknown, signal: AbortSig
   );
 }
 
-// Queued wrapper for quick, fixed-size calls (classify/embed/title). Safe to
-// let callers read the response body after this resolves — for a
-// stream:false request Ollama has already finished all generation by the
-// time headers come back, so no meaningful work happens outside the queue.
+// Queued wrapper for quick, fixed-size calls (title generation). Safe to let
+// callers read the response body after this resolves — for a stream:false
+// request Ollama has already finished all generation by the time headers
+// come back, so no meaningful work happens outside the queue.
 async function postOllama(path: string, body: unknown): Promise<Response> {
   return withOllamaQueue(() =>
     postOllamaWithRetry(path, body, AbortSignal.timeout(config.ollamaQuickTimeoutMs)),
   );
 }
 
+// Same as postOllama, but through the separate embed queue lane (see
+// ollamaQueue.ts) instead of the chat-generation one.
+async function postOllamaEmbed(path: string, body: unknown): Promise<Response> {
+  return withOllamaEmbedQueue(() =>
+    postOllamaWithRetry(path, body, AbortSignal.timeout(config.ollamaQuickTimeoutMs)),
+  );
+}
+
 // ---------- embed ----------
 export async function embed(text: string): Promise<number[]> {
-  const res = await postOllama("/api/embed", {
+  const res = await postOllamaEmbed("/api/embed", {
     model: config.ollamaEmbedModel,
     input: text,
   });

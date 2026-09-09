@@ -103,9 +103,17 @@ export const config = {
   // (we've seen it OOM-kill under load). Every call funnels through a queue
   // capped at this concurrency so requests wait their turn instead.
   ollamaMaxConcurrency: parseInt(optionalEnv("OLLAMA_MAX_CONCURRENCY", "1"), 10),
-  // Hard deadline for small, fixed-size Ollama calls (classify/embed/title —
-  // all use a tiny num_predict), so one wedged request can't block the
-  // queue, and therefore every other user, forever.
+  // Embeddings (knowledge-base lookups) get their own, separate queue lane
+  // from chat generation — nomic-embed-text is small enough to stay resident
+  // in memory alongside a loaded chat model without evicting it (verified
+  // directly against this host), so a KB lookup doesn't need to queue behind
+  // someone else's entire multi-minute chat generation the way it did when
+  // everything shared one concurrency=1 queue. Kept modest, not high — it's
+  // still the same CPU doing the compute either way.
+  ollamaEmbedConcurrency: parseInt(optionalEnv("OLLAMA_EMBED_CONCURRENCY", "2"), 10),
+  // Hard deadline for small, fixed-size Ollama calls (title/embed — both use
+  // a tiny num_predict), so one wedged request can't block the queue, and
+  // therefore every other user, forever.
   ollamaQuickTimeoutMs: parseInt(optionalEnv("OLLAMA_QUICK_TIMEOUT_MS", "30000"), 10),
   // Hard deadline for full chat generation. Generous because this CPU-bound
   // host has been observed to generate at well under 1 token/sec — this is

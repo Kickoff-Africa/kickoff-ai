@@ -116,12 +116,17 @@ const upload = multer({
  *         for (const line of lines) {
  *           if (!line.trim()) continue
  *           const event = JSON.parse(line)
- *           // event.type: 'chunk' | 'done' | 'cancelled' | 'error'
+ *           // event.type: 'queued' | 'chunk' | 'done' | 'cancelled' | 'error'
  *         }
  *       }
  *       ```
  *
- *       Four line shapes appear on the stream:
+ *       Five line shapes appear on the stream:
+ *       - `{"type":"queued","elapsed_seconds":N}` — sent every 10s while this request is still
+ *         waiting its turn (Ollama can only run one generation at a time — see "Model routing"
+ *         above) or the model is still loading. Stops once generation actually starts; never
+ *         appears at all if there was nothing to wait for. Exists so a slow start is
+ *         distinguishable from a hung connection — it carries no other information.
  *       - `{"type":"chunk","content":"..."}` — one per generated token/fragment, in order.
  *       - `{"type":"done", message, model_used, tokens_used, used_web_search,
  *         used_knowledge_base, access}` — exactly once, at the end of a successful generation.
@@ -198,11 +203,14 @@ const upload = multer({
  *           application/x-ndjson:
  *             schema:
  *               type: object
- *               description: One of {type:"chunk"}, {type:"done"}, {type:"cancelled"}, or {type:"error"} — see above.
+ *               description: One of {type:"queued"}, {type:"chunk"}, {type:"done"}, {type:"cancelled"}, or {type:"error"} — see above.
  *               properties:
  *                 type:
  *                   type: string
- *                   enum: [chunk, done, cancelled, error]
+ *                   enum: [queued, chunk, done, cancelled, error]
+ *                 elapsed_seconds:
+ *                   type: integer
+ *                   description: Present on "queued" lines — seconds elapsed since the request was received.
  *                 content:
  *                   type: string
  *                   description: Present on "chunk" lines — a fragment of the assistant's reply.
@@ -457,14 +465,40 @@ messagesRouter.post(
         ];
       }
 
-      const { content: assistantContent, tokensUsed, cancelled } = await chatStream(
-        chatHistory,
-        model,
-        (delta) => {
-          res.write(JSON.stringify({ type: 'chunk', content: delta }) + '\n');
-        },
-        chatOptions,
-      );
+      // Confirmed in production: with concurrency=1 on the Ollama queue, a
+      // user queued behind someone else's generation sees literally nothing
+      // — no bytes at all — until their own turn starts, which on this host
+      // can be minutes. That's indistinguishable from a hung connection.
+      // This heartbeat doesn't reduce the wait (the queue is concurrency=1
+      // for a real reason — see ollamaQueue.ts), it just proves the
+      // connection is alive while queued, the same way "3 people ahead of
+      // you" beats a spinner with no information at all.
+      let hasStartedGenerating = false;
+      const queueHeartbeat = setInterval(() => {
+        if (!hasStartedGenerating) {
+          res.write(
+            JSON.stringify({
+              type: 'queued',
+              elapsed_seconds: Math.round((Date.now() - startTime) / 1000),
+            }) + '\n',
+          );
+        }
+      }, 10000);
+
+      let assistantContent: string, tokensUsed: number, cancelled: boolean;
+      try {
+        ({ content: assistantContent, tokensUsed, cancelled } = await chatStream(
+          chatHistory,
+          model,
+          (delta) => {
+            hasStartedGenerating = true;
+            res.write(JSON.stringify({ type: 'chunk', content: delta }) + '\n');
+          },
+          chatOptions,
+        ));
+      } finally {
+        clearInterval(queueHeartbeat);
+      }
       const modelUsed = model;
 
       // A cancel with nothing generated yet leaves no trace — same as if the
