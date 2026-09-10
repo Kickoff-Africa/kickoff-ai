@@ -15,6 +15,23 @@ import { addUsage, getRemainingSeconds } from '../services/access';
 
 export const messagesRouter = Router({ mergeParams: true });
 
+// There was previously no system prompt at all — the model got raw
+// conversation history with zero guidance. Two failure modes traced back
+// directly to that gap: (1) when web search/KB context was injected, the
+// model would describe the sources ("the page discusses...") instead of
+// actually answering from them; (2) asked about a specific person or small
+// organization it had no real knowledge of (not search-triggered, so no
+// grounding at all), it confidently invented plausible-sounding but false
+// details rather than saying it didn't know. Both are addressed here, not
+// by adding more machinery, since this costs nothing extra — no additional
+// Ollama call, negligible prompt-eval overhead.
+const SYSTEM_PROMPT =
+  "You are Scout AI, Kickoff Africa's internal assistant. When web search or knowledge base " +
+  'results are included below the conversation, use them to answer the question directly and ' +
+  "specifically — don't just describe what the sources say. If you don't have reliable, " +
+  'specific knowledge about a person, company, or organization, say so plainly rather than ' +
+  'guessing or inventing details.';
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
@@ -456,7 +473,7 @@ messagesRouter.post(
         );
       }
 
-      let chatHistory = historyRows;
+      let chatHistory: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = historyRows;
       if (contextBlocks.length > 0) {
         const lastMessage = historyRows[historyRows.length - 1];
         chatHistory = [
@@ -464,6 +481,7 @@ messagesRouter.post(
           { ...lastMessage, content: `${lastMessage.content}\n\n${contextBlocks.join('\n\n')}` },
         ];
       }
+      chatHistory = [{ role: 'system', content: SYSTEM_PROMPT }, ...chatHistory];
 
       // Confirmed in production: with concurrency=1 on the Ollama queue, a
       // user queued behind someone else's generation sees literally nothing

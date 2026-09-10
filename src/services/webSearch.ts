@@ -17,9 +17,18 @@ const MAX_RESULTS = 5;
 // Small local models can't reliably self-report "I don't know this, search
 // for it" — a 1B/4B model will often just hallucinate an answer instead.
 // So the decision to search is made deterministically in code, based on
-// whether the message looks time-sensitive, rather than left to the model.
+// whether the message looks time-sensitive or like a factual lookup on a
+// specific person/organization, rather than left to the model. Confirmed in
+// practice: asked to "find out about" a real but small, specific
+// organization (not "what's the current president," which already matched),
+// the model — ungrounded, nothing here caught it — confidently invented a
+// plausible-sounding but entirely false description instead of saying it
+// didn't know. The "tell me about" / "find out about" family is added
+// specifically for that "look this up" intent — deliberately not broadening
+// bare "who is" or "what is" past that, since those are just as likely to be
+// ordinary conceptual or conversational questions that don't need a crawl.
 const SEARCH_TRIGGER_PATTERN =
-  /\b(today|current(ly)?|latest|recent(ly)?|breaking|news|update[sd]?|score|weather|forecast|price|stock|exchange rate|who\s+is\s+the\s+(current|new)|what(?:'s|\s+is)\s+the\s+(current|latest))\b/i;
+  /\b(today|current(ly)?|latest|recent(ly)?|breaking|news|update[sd]?|score|weather|forecast|price|stock|exchange rate|who\s+is\s+the\s+(current|new)|what(?:'s|\s+is)\s+the\s+(current|latest)|tell me about|find out about|what do you know about|information (on|about))\b/i;
 const RECENT_YEAR_PATTERN = /\b20(2[4-9]|[3-9]\d)\b/;
 
 export function shouldSearch(message: string): boolean {

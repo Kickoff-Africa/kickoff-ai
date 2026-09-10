@@ -124,7 +124,7 @@ export async function embed(text: string): Promise<number[]> {
 }
 
 // ---------- generateConversationTitle ----------
-type ChatMessage = { role: "user" | "assistant"; content: string };
+type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 const TITLE_TRANSCRIPT_CHAR_LIMIT = 2000;
 const TITLE_CHAR_LIMIT = 80;
