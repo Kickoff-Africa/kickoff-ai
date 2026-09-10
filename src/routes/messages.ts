@@ -1,5 +1,6 @@
 import multer from 'multer';
 import { Router } from 'express';
+import { config } from '../config/env';
 import { query } from '../config/database';
 import { logger } from '../config/logger';
 import { authenticate } from '../middleware/authenticate';
@@ -25,12 +26,39 @@ export const messagesRouter = Router({ mergeParams: true });
 // details rather than saying it didn't know. Both are addressed here, not
 // by adding more machinery, since this costs nothing extra — no additional
 // Ollama call, negligible prompt-eval overhead.
+// Numbered, imperative rules rather than flowing prose — small models follow
+// enumerated instructions more reliably than an equivalent paragraph, since
+// there's no ambiguity about where one instruction ends and the next begins.
 const SYSTEM_PROMPT =
-  "You are Scout AI, Kickoff Africa's internal assistant. When web search or knowledge base " +
-  'results are included below the conversation, use them to answer the question directly and ' +
-  "specifically — don't just describe what the sources say. If you don't have reliable, " +
-  'specific knowledge about a person, company, or organization, say so plainly rather than ' +
-  'guessing or inventing details.';
+  "You are Scout AI, Kickoff Africa's internal assistant. Follow these rules:\n" +
+  '1. Answer directly and specifically. Do not restate the question or describe what a source ' +
+  'says — use it to actually answer.\n' +
+  "2. If you don't have reliable, specific knowledge about a person, company, or organization, " +
+  'say so plainly rather than guessing or inventing details.\n' +
+  '3. When web search or knowledge base results are included below the conversation, treat them ' +
+  "as the current source of truth and answer from them, even if it conflicts with what you'd " +
+  'otherwise assume.\n' +
+  '4. Keep answers concise by default — expand only when the question asks for detail or a list.\n' +
+  '5. If a request is ambiguous, ask one clarifying question instead of guessing at intent.\n' +
+  '6. Never fabricate citations, statistics, URLs, or quotes.';
+
+// Keeps the most recent messages that fit within maxChars, dropping the
+// oldest first — approximate, not token-exact, since no tokenizer is
+// available here. Always keeps at least the final message (the current
+// turn), even if it alone exceeds the budget, since that one can't be dropped.
+function truncateHistory(
+  rows: Array<{ role: 'user' | 'assistant'; content: string }>,
+  maxChars: number,
+): Array<{ role: 'user' | 'assistant'; content: string }> {
+  const kept: typeof rows = [];
+  let total = 0;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    total += rows[i].content.length;
+    if (total > maxChars && kept.length > 0) break;
+    kept.unshift(rows[i]);
+  }
+  return kept;
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -473,11 +501,13 @@ messagesRouter.post(
         );
       }
 
-      let chatHistory: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = historyRows;
+      const truncatedHistory = truncateHistory(historyRows, config.chatHistoryCharBudget);
+
+      let chatHistory: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = truncatedHistory;
       if (contextBlocks.length > 0) {
-        const lastMessage = historyRows[historyRows.length - 1];
+        const lastMessage = truncatedHistory[truncatedHistory.length - 1];
         chatHistory = [
-          ...historyRows.slice(0, -1),
+          ...truncatedHistory.slice(0, -1),
           { ...lastMessage, content: `${lastMessage.content}\n\n${contextBlocks.join('\n\n')}` },
         ];
       }

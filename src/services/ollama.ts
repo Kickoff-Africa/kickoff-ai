@@ -212,7 +212,7 @@ export async function chatStream(
         // models more prone to rambling/incoherence on ordinary factual
         // questions. 0.35 trades away some of that variety for consistency,
         // without the latency cost a bigger model would carry.
-        options: { temperature: 0.35, num_predict: 4096 },
+        options: { temperature: 0.35, num_predict: 4096, num_ctx: config.ollamaNumCtx },
       },
       signal,
     );

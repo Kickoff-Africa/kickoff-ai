@@ -50,6 +50,23 @@ export const config = {
   ollamaModerateModel: optionalEnv("OLLAMA_MODERATE_MODEL", "gemma3:1b"),
   ollamaComplexModel: optionalEnv("OLLAMA_COMPLEX_MODEL", "gemma3:1b"),
   ollamaVisionModel: optionalEnv("OLLAMA_VISION_MODEL", "gemma3:4b"),
+  // Context window size (in tokens) requested per chat call. Previously
+  // unset, so each model just used its own baked-in default — set explicitly
+  // so it doesn't silently shift if a model's default changes, and so it can
+  // be tuned independently of num_predict. Kept modest rather than maxed out:
+  // this CPU-bound host generates at well under 1 token/sec and prompt-eval
+  // time scales with context size too, so a bigger window than needed just
+  // burns more time per message.
+  ollamaNumCtx: parseInt(optionalEnv("OLLAMA_NUM_CTX", "8192"), 10),
+  // Rough character budget (no tokenizer available here, so this is an
+  // approximation, not a token-exact bound) for conversation history included
+  // in a chat prompt. Without this, the full conversation accumulates into
+  // every prompt unbounded, and on a long conversation eventually exceeds
+  // num_ctx — silently dropping context from whichever end Ollama truncates.
+  // Truncating explicitly, oldest-first, keeps behavior predictable and
+  // leaves headroom in num_ctx for the system prompt, injected web
+  // search/knowledge base context, and the response itself (num_predict).
+  chatHistoryCharBudget: parseInt(optionalEnv("CHAT_HISTORY_CHAR_BUDGET", "12000"), 10),
   // How long crawled web search results stay valid in the local cache before
   // a query is considered stale and re-crawled.
   webSearchCacheTtlHours: parseInt(
