@@ -1,20 +1,22 @@
 // src/services/ollamaQueue.ts
-// Two separate queues, not one. The host is a single CPU-bound instance that
-// can only usefully run one *chat generation* at a time — concurrent full
-// generations don't add throughput, they make every in-flight one slower and
-// have been observed to OOM-kill the model process outright. That's real,
-// and chatStream() stays strictly concurrency=1 for it.
+// Queues for the self-hosted Ollama box only (embeddings, and vision if that
+// path is ever re-enabled — see ollama.ts). Normal chat/title generation now
+// runs on Ollama's cloud API and isn't queued at all: it's a hosted service
+// with its own concurrency handling, not a single CPU-bound box that OOMs
+// under concurrent load the way the self-hosted one does.
 //
-// But embeddings (used for knowledge-base lookups) are a different kind of
-// load: nomic-embed-text is a much smaller model, and we verified directly
-// against this host that it stays resident in memory alongside a loaded chat
-// model without evicting it (`ollama ps` showed both loaded at once). Also
-// confirmed in production: with everything sharing one concurrency=1 queue,
-// one user's knowledge-base lookup was blocked behind a *different* user's
-// entire multi-minute chat generation before it could even start — most of
-// that wait had nothing to do with the embed itself. Giving embeds their own
-// higher-concurrency lane means a KB lookup no longer queues behind someone
-// else's unrelated chat reply.
+// Two separate queues on that box, not one. It can only usefully run one
+// *generation* at a time — concurrent full generations don't add throughput,
+// they make every in-flight one slower and have been observed to OOM-kill
+// the model process outright. That's real, and the vision path stays
+// strictly concurrency=1 for it.
+//
+// But embeddings are a different kind of load: nomic-embed-text is a much
+// smaller model, and we verified directly against this host that it stays
+// resident in memory alongside a loaded generation model without evicting it
+// (`ollama ps` showed both loaded at once). Giving embeds their own
+// higher-concurrency lane means a KB lookup doesn't queue behind an
+// in-flight vision generation on the same box.
 //
 // p-queue is ESM-only, so it's loaded via dynamic import from this
 // otherwise-CommonJS project (see also unpdf/mammoth in fileProcessor.ts).
@@ -43,8 +45,7 @@ function getEmbedQueue(): Promise<PQueue> {
   return embedQueuePromise;
 }
 
-// For classify/title (now just title) and chat generation — the resource
-// that's genuinely scarce on this host.
+// For the self-hosted box's generation slot (currently just the vision path).
 export async function withOllamaQueue<T>(task: () => Promise<T>): Promise<T> {
   const queue = await getChatQueue();
   return queue.add(task) as Promise<T>;

@@ -44,28 +44,28 @@ export const config = {
   cloudinaryCloudName: requireEnv("CLOUDINARY_CLOUD_NAME"),
   cloudinaryApiKey: requireEnv("CLOUDINARY_API_KEY"),
   cloudinaryApiSecret: requireEnv("CLOUDINARY_API_SECRET"),
-  // Ollama
+  // Ollama — chat generation and title generation run against Ollama's cloud
+  // API (ollama.com), not a self-hosted box: same request/response shape as
+  // self-hosted Ollama, just authenticated and remotely hosted. Embeddings
+  // and vision stay on the original self-hosted box below, since Ollama's
+  // cloud tier only offers chat models, no embedding or vision models.
+  ollamaCloudBaseUrl: requireUrl("OLLAMA_CLOUD_BASE_URL", "https://ollama.com"),
+  ollamaApiKey: requireEnv("OLLAMA_API_KEY"),
+  ollamaSimpleModel: optionalEnv("OLLAMA_SIMPLE_MODEL", "gpt-oss:120b-cloud"),
+  ollamaModerateModel: optionalEnv("OLLAMA_MODERATE_MODEL", "gpt-oss:120b-cloud"),
+  ollamaComplexModel: optionalEnv("OLLAMA_COMPLEX_MODEL", "gpt-oss:120b-cloud"),
+  // Self-hosted Ollama box: embeddings, plus vision if that path is ever
+  // re-enabled (see messages.ts — image attachments currently return 503).
   ollamaBaseUrl: requireUrl("OLLAMA_BASE_URL", "http://203.161.52.27:11434"),
-  ollamaSimpleModel: optionalEnv("OLLAMA_SIMPLE_MODEL", "gemma3:1b"),
-  ollamaModerateModel: optionalEnv("OLLAMA_MODERATE_MODEL", "gemma3:1b"),
-  ollamaComplexModel: optionalEnv("OLLAMA_COMPLEX_MODEL", "gemma3:1b"),
   ollamaVisionModel: optionalEnv("OLLAMA_VISION_MODEL", "gemma3:4b"),
-  // Context window size (in tokens) requested per chat call. Previously
-  // unset, so each model just used its own baked-in default — set explicitly
-  // so it doesn't silently shift if a model's default changes, and so it can
-  // be tuned independently of num_predict. Kept modest rather than maxed out:
-  // this CPU-bound host generates at well under 1 token/sec and prompt-eval
-  // time scales with context size too, so a bigger window than needed just
-  // burns more time per message.
-  ollamaNumCtx: parseInt(optionalEnv("OLLAMA_NUM_CTX", "8192"), 10),
   // Rough character budget (no tokenizer available here, so this is an
   // approximation, not a token-exact bound) for conversation history included
   // in a chat prompt. Without this, the full conversation accumulates into
-  // every prompt unbounded, and on a long conversation eventually exceeds
-  // num_ctx — silently dropping context from whichever end Ollama truncates.
+  // every prompt unbounded, and on a long conversation could eventually
+  // exceed the model's context window or just balloon latency/cost.
   // Truncating explicitly, oldest-first, keeps behavior predictable and
-  // leaves headroom in num_ctx for the system prompt, injected web
-  // search/knowledge base context, and the response itself (num_predict).
+  // leaves headroom for the system prompt, injected web search/knowledge
+  // base context, and the response itself.
   chatHistoryCharBudget: parseInt(optionalEnv("CHAT_HISTORY_CHAR_BUDGET", "12000"), 10),
   // How long crawled web search results stay valid in the local cache before
   // a query is considered stale and re-crawled.
@@ -73,7 +73,8 @@ export const config = {
     optionalEnv("WEB_SEARCH_CACHE_TTL_HOURS", "6"),
     10,
   ),
-  // Embedding model used for the semantic search cache.
+  // Embedding model used for the semantic search cache and knowledge base —
+  // runs on the self-hosted Ollama box (see ollamaBaseUrl above).
   ollamaEmbedModel: optionalEnv("OLLAMA_EMBED_MODEL", "nomic-embed-text"),
   // Minimum cosine similarity for a cached query to count as a match for a
   // new one. Lower = more cache hits but more risk of an off-topic match.
@@ -115,25 +116,25 @@ export const config = {
     .filter(Boolean),
   // Cron schedule (node-cron/crontab syntax) for refreshing the daily digest.
   dailyDigestCronSchedule: optionalEnv("DAILY_DIGEST_CRON_SCHEDULE", "0 6 * * *"),
-  // The Ollama host is a single CPU-bound instance that can only run one
-  // model at a time — concurrent requests don't parallelize, they thrash
-  // (we've seen it OOM-kill under load). Every call funnels through a queue
-  // capped at this concurrency so requests wait their turn instead.
+  // The self-hosted Ollama box is a single CPU-bound instance that can only
+  // run one generation at a time — concurrent requests don't parallelize,
+  // they thrash (we've seen it OOM-kill under load). Only the vision path
+  // still runs there (see ollamaBaseUrl above); normal chat now runs on
+  // Ollama's cloud API and isn't subject to this limit.
   ollamaMaxConcurrency: parseInt(optionalEnv("OLLAMA_MAX_CONCURRENCY", "1"), 10),
-  // Embeddings (knowledge-base lookups) get their own, separate queue lane
-  // from chat generation — nomic-embed-text is small enough to stay resident
-  // in memory alongside a loaded chat model without evicting it (verified
-  // directly against this host), so a KB lookup doesn't need to queue behind
-  // someone else's entire multi-minute chat generation the way it did when
-  // everything shared one concurrency=1 queue. Kept modest, not high — it's
-  // still the same CPU doing the compute either way.
+  // Embeddings get their own, separate queue lane on the self-hosted box —
+  // nomic-embed-text is small enough to stay resident in memory alongside a
+  // loaded vision model without evicting it (verified directly against this
+  // host), so a KB lookup doesn't need to queue behind an in-flight vision
+  // generation the way it would sharing one concurrency=1 queue.
   ollamaEmbedConcurrency: parseInt(optionalEnv("OLLAMA_EMBED_CONCURRENCY", "2"), 10),
-  // Hard deadline for small, fixed-size Ollama calls (title/embed — both use
-  // a tiny num_predict), so one wedged request can't block the queue, and
-  // therefore every other user, forever.
+  // Hard deadline for small, fixed-size Ollama calls (title/embed), so one
+  // wedged request can't block the queue, and therefore every other user,
+  // forever.
   ollamaQuickTimeoutMs: parseInt(optionalEnv("OLLAMA_QUICK_TIMEOUT_MS", "30000"), 10),
-  // Hard deadline for full chat generation. Generous because this CPU-bound
-  // host has been observed to generate at well under 1 token/sec — this is
-  // a safety net against a true hang, not a bound on normal slowness.
+  // Hard deadline for full chat generation. Generous because the vision path
+  // still runs on the CPU-bound self-hosted box (well under 1 token/sec) even
+  // though normal cloud chat is much faster — this is a safety net against a
+  // true hang, not a bound on normal response time.
   ollamaChatTimeoutMs: parseInt(optionalEnv("OLLAMA_CHAT_TIMEOUT_MS", "600000"), 10),
 };

@@ -2,7 +2,6 @@
 import { config } from "../config/env";
 import { withOllamaQueue, withOllamaEmbedQueue } from "./ollamaQueue";
 
-const OLLAMA_BASE_URL = config.ollamaBaseUrl;
 const RETRY_DELAY_MS = 500;
 
 export class OllamaUnavailableError extends Error {
@@ -41,13 +40,23 @@ export function getModelForComplexity(complexity: Complexity): string {
 }
 
 // One request attempt, bounded by whatever deadline/cancellation `signal`
-// represents — callers build that signal (see postOllama and chatStream)
-// since a quick call only needs a timeout, while chatStream also needs to
-// react to a caller-initiated cancellation.
-async function fetchOllamaOnce(path: string, body: unknown, signal: AbortSignal): Promise<Response> {
-  const res = await fetch(`${OLLAMA_BASE_URL}${path}`, {
+// represents — callers build that signal (see postOllama* helpers and
+// chatStream) since a quick call only needs a timeout, while chatStream also
+// needs to react to a caller-initiated cancellation. `apiKey` is only set for
+// calls to Ollama's cloud API — the self-hosted box takes no auth.
+async function fetchOllamaOnce(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  signal: AbortSignal,
+  apiKey?: string,
+): Promise<Response> {
+  const res = await fetch(`${baseUrl}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    },
     body: JSON.stringify(body),
     signal,
   });
@@ -65,7 +74,13 @@ async function fetchOllamaOnce(path: string, body: unknown, signal: AbortSignal)
 // just waste the backoff delay repeating a request nobody wants anymore.
 // Not queued — callers decide the queuing boundary, since a streaming caller
 // needs the queue slot held well past the point this function returns.
-async function postOllamaWithRetry(path: string, body: unknown, signal: AbortSignal): Promise<Response> {
+async function postOllamaWithRetry(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  signal: AbortSignal,
+  apiKey?: string,
+): Promise<Response> {
   let lastError: string;
 
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -74,7 +89,7 @@ async function postOllamaWithRetry(path: string, body: unknown, signal: AbortSig
     }
 
     try {
-      return await fetchOllamaOnce(path, body, signal);
+      return await fetchOllamaOnce(baseUrl, path, body, signal, apiKey);
     } catch (err) {
       if (signal.aborted) throw err;
       lastError = (err as Error).message;
@@ -90,21 +105,25 @@ async function postOllamaWithRetry(path: string, body: unknown, signal: AbortSig
   );
 }
 
-// Queued wrapper for quick, fixed-size calls (title generation). Safe to let
-// callers read the response body after this resolves — for a stream:false
-// request Ollama has already finished all generation by the time headers
-// come back, so no meaningful work happens outside the queue.
-async function postOllama(path: string, body: unknown): Promise<Response> {
-  return withOllamaQueue(() =>
-    postOllamaWithRetry(path, body, AbortSignal.timeout(config.ollamaQuickTimeoutMs)),
+// Queued wrapper for quick, fixed-size calls to the self-hosted box (embed).
+// Safe to let callers read the response body after this resolves — for a
+// stream:false request Ollama has already finished all generation by the
+// time headers come back, so no meaningful work happens outside the queue.
+async function postOllamaEmbed(path: string, body: unknown): Promise<Response> {
+  return withOllamaEmbedQueue(() =>
+    postOllamaWithRetry(config.ollamaBaseUrl, path, body, AbortSignal.timeout(config.ollamaQuickTimeoutMs)),
   );
 }
 
-// Same as postOllama, but through the separate embed queue lane (see
-// ollamaQueue.ts) instead of the chat-generation one.
-async function postOllamaEmbed(path: string, body: unknown): Promise<Response> {
-  return withOllamaEmbedQueue(() =>
-    postOllamaWithRetry(path, body, AbortSignal.timeout(config.ollamaQuickTimeoutMs)),
+// Unqueued: Ollama's cloud API is a hosted service, not the single CPU-bound
+// self-hosted box, so it doesn't need the queueing that embed/vision calls do.
+async function postOllamaCloud(path: string, body: unknown): Promise<Response> {
+  return postOllamaWithRetry(
+    config.ollamaCloudBaseUrl,
+    path,
+    body,
+    AbortSignal.timeout(config.ollamaQuickTimeoutMs),
+    config.ollamaApiKey,
   );
 }
 
@@ -138,7 +157,7 @@ export async function generateConversationTitle(
     .slice(0, TITLE_TRANSCRIPT_CHAR_LIMIT);
 
   try {
-    const res = await postOllama("/api/generate", {
+    const res = await postOllamaCloud("/api/generate", {
       model: simpleModel(),
       prompt:
         `Summarize the following conversation as a short title ` +
@@ -168,8 +187,10 @@ export async function generateConversationTitle(
 // ---------- chatStream ----------
 // Streams the response so the caller can forward tokens to the client as
 // they're generated, instead of the whole request blocking on one giant
-// wait. The entire read loop — not just the initial fetch — runs inside the
-// queue: for a streaming response, Ollama keeps using CPU for as long as the
+// wait. Normal (text) chat runs on Ollama's cloud API and isn't queued; an
+// image attachment routes to the self-hosted box's vision model instead,
+// and does run through the chat queue — the entire read loop, not just the
+// initial fetch, since that box keeps using CPU for as long as the response
 // body is still being read, so the queue slot has to be held for the whole
 // generation, not just until the connection opens.
 export async function chatStream(
@@ -190,10 +211,11 @@ export async function chatStream(
     return { role: m.role, content: m.content };
   });
 
-  const chosenModel = options?.imageBase64 ? visionModel() : model;
+  const isVision = Boolean(options?.imageBase64);
+  const chosenModel = isVision ? visionModel() : model;
   const cancelSignal = options?.signal;
 
-  return withOllamaQueue(async () => {
+  const runGeneration = async (): Promise<{ content: string; tokensUsed: number; cancelled: boolean }> => {
     // Two independent reasons a request can be cut short: the hard timeout
     // (a real failure — the host is wedged), and a caller-initiated cancel
     // (the user hit "stop" — not a failure at all). Both raise AbortError,
@@ -202,19 +224,20 @@ export async function chatStream(
     const signal = cancelSignal ? AbortSignal.any([timeoutSignal, cancelSignal]) : timeoutSignal;
 
     const res = await postOllamaWithRetry(
+      isVision ? config.ollamaBaseUrl : config.ollamaCloudBaseUrl,
       "/api/chat",
       {
         model: chosenModel,
         messages: ollamaMessages,
         stream: true,
         // Ollama's default temperature (0.8) favors variety over grounded,
-        // literal answers — fine for creative writing, but it makes small
-        // models more prone to rambling/incoherence on ordinary factual
-        // questions. 0.35 trades away some of that variety for consistency,
-        // without the latency cost a bigger model would carry.
-        options: { temperature: 0.35, num_predict: 4096, num_ctx: config.ollamaNumCtx },
+        // literal answers — fine for creative writing, but it makes models
+        // more prone to rambling/incoherence on ordinary factual questions.
+        // 0.35 trades away some of that variety for consistency.
+        options: { temperature: 0.35, num_predict: 4096 },
       },
       signal,
+      isVision ? undefined : config.ollamaApiKey,
     );
 
     if (!res.body) {
@@ -271,5 +294,7 @@ export async function chatStream(
     }
 
     return { content: fullContent, tokensUsed: promptEvalCount + evalCount, cancelled: false };
-  });
+  };
+
+  return isVision ? withOllamaQueue(runGeneration) : runGeneration();
 }

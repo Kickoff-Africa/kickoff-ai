@@ -22,15 +22,14 @@ export const messagesRouter = Router({ mergeParams: true });
 // used, invented details about people/orgs the model had no real knowledge
 // of, and the model naming its underlying provider instead of staying in
 // character. Addressed here, not with more machinery, since this costs
-// nothing extra — no additional Ollama call, negligible prompt-eval overhead
-// beyond the prompt's own token count.
+// nothing extra — no additional API call, negligible token overhead beyond
+// the prompt's own length.
 //
-// Grouped, numbered, imperative rules rather than flowing prose — small
-// models follow enumerated instructions more reliably than an equivalent
-// paragraph. That said, this model is gemma3:1b: adherence to any single
-// rule degrades as the total rule count grows, so this is sized for the
-// request types this app actually sees (see messages.ts route docs above),
-// not padded out further "for completeness."
+// Grouped, numbered, imperative rules rather than flowing prose — models
+// follow enumerated instructions more reliably than an equivalent paragraph,
+// and adherence to any single rule degrades as the total rule count grows,
+// so this is sized for the request types this app actually sees (see
+// messages.ts route docs above), not padded out further "for completeness."
 const SYSTEM_PROMPT = `You are Scout AI, Kickoff Africa's internal assistant. Follow these rules:
 
 IDENTITY
@@ -161,13 +160,13 @@ const upload = multer({
  *
  *       | Condition | Model used |
  *       |-----------|-----------|
- *       | Image attached | `OLLAMA_VISION_MODEL` |
- *       | No image | `OLLAMA_MODERATE_MODEL` |
+ *       | Image attached | `OLLAMA_VISION_MODEL` (self-hosted) |
+ *       | No image | `OLLAMA_MODERATE_MODEL` (Ollama cloud) |
  *
  *       Every text message goes straight to the same model — there's no per-message complexity
- *       classification step (there used to be; it added an extra Ollama round trip to every
- *       message and the smaller "simple" tier routinely produced worse answers than just always
- *       using the moderate model, so it was removed).
+ *       classification step (there used to be; it added an extra round trip to every message
+ *       and the smaller "simple" tier routinely produced worse answers than just always using
+ *       the moderate model, so it was removed).
  *
  *       ## Streaming response
  *
@@ -196,10 +195,11 @@ const upload = multer({
  *
  *       Five line shapes appear on the stream:
  *       - `{"type":"queued","elapsed_seconds":N}` — sent every 10s while this request is still
- *         waiting its turn (Ollama can only run one generation at a time — see "Model routing"
- *         above) or the model is still loading. Stops once generation actually starts; never
- *         appears at all if there was nothing to wait for. Exists so a slow start is
- *         distinguishable from a hung connection — it carries no other information.
+ *         waiting its turn (an image attachment routes to the self-hosted vision box, which can
+ *         only run one generation at a time — see "Model routing" above) or waiting on its first
+ *         token. Stops once generation actually starts; never appears at all if there was nothing
+ *         to wait for. Exists so a slow start is distinguishable from a hung connection — it
+ *         carries no other information.
  *       - `{"type":"chunk","content":"..."}` — one per generated token/fragment, in order.
  *       - `{"type":"done", message, model_used, tokens_used, used_web_search,
  *         used_knowledge_base, access}` — exactly once, at the end of a successful generation.
@@ -296,7 +296,7 @@ const upload = multer({
  *                     "\n\n[Response stopped]" in that case).
  *                 model_used:
  *                   type: string
- *                   example: gemma3:4b
+ *                   example: gpt-oss:120b-cloud
  *                   description: Present on "done" lines, and on "cancelled" lines when `message` is present.
  *                 tokens_used:
  *                   type: integer
@@ -473,10 +473,10 @@ messagesRouter.post(
       let usedKnowledgeBase = false;
       const contextBlocks: string[] = [];
 
-      // No classification step — every 1B-model routing decision this app made
+      // No classification step — every routing decision this app made
       // turned out to need the bigger model anyway (see the weather/search
-      // cases), and the classify call itself cost an extra Ollama round trip
-      // on every single message. Text always goes straight to the moderate
+      // cases), and the classify call itself cost an extra round trip on
+      // every single message. Text always goes straight to the moderate
       // model; only an image attachment still steps up further.
       const model = (attachment?.type === 'image')
         ? getModelForComplexity('complex')
@@ -493,13 +493,13 @@ messagesRouter.post(
       //
       // Flushed here — before the knowledge-base lookup below, not after it
       // — deliberately. That lookup makes its own Ollama call (an embed,
-      // through the same queue as chat generation), so if it were placed
+      // through the self-hosted box's embed queue), so if it were placed
       // before this point, queue contention from someone else's in-flight
-      // generation would delay it, and therefore delay the client seeing
-      // *anything at all* — the client can't tell "queued behind another
-      // request" apart from "hung" until some byte arrives. Nothing between
-      // here and the validation above can still fail with a different status
-      // code, so it's safe to open the connection now.
+      // embed or vision generation would delay it, and therefore delay the
+      // client seeing *anything at all* — the client can't tell "queued
+      // behind another request" apart from "hung" until some byte arrives.
+      // Nothing between here and the validation above can still fail with a
+      // different status code, so it's safe to open the connection now.
       res.writeHead(200, {
         'Content-Type': 'application/x-ndjson; charset=utf-8',
         'Cache-Control': 'no-cache',
@@ -541,14 +541,15 @@ messagesRouter.post(
       }
       chatHistory = [{ role: 'system', content: SYSTEM_PROMPT }, ...chatHistory];
 
-      // Confirmed in production: with concurrency=1 on the Ollama queue, a
-      // user queued behind someone else's generation sees literally nothing
-      // — no bytes at all — until their own turn starts, which on this host
-      // can be minutes. That's indistinguishable from a hung connection.
-      // This heartbeat doesn't reduce the wait (the queue is concurrency=1
-      // for a real reason — see ollamaQueue.ts), it just proves the
-      // connection is alive while queued, the same way "3 people ahead of
-      // you" beats a spinner with no information at all.
+      // Confirmed in production: with concurrency=1 on the self-hosted box's
+      // vision queue, a user queued behind someone else's generation sees
+      // literally nothing — no bytes at all — until their own turn starts,
+      // which on that host can be minutes. Normal (non-vision) chat runs on
+      // Ollama's cloud API instead and isn't queued, but can still have a
+      // slow start (rate-limit backoff, a large prompt, a network hiccup).
+      // Either way this heartbeat doesn't reduce the wait, it just proves the
+      // connection is alive while queued/waiting, the same way "3 people
+      // ahead of you" beats a spinner with no information at all.
       let hasStartedGenerating = false;
       const queueHeartbeat = setInterval(() => {
         if (!hasStartedGenerating) {

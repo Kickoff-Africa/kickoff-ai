@@ -12,7 +12,7 @@ KickoffAI gives every Kickoff Africa team member access to Ollama-powered chat w
 - **JWT sessions** — stateless auth with jti-based revocation on logout
 - **Metered access** — 1 hour of free AI time per 12-hour rolling window, tracked cumulatively in seconds
 - **Extension requests** — users request +1, +2, or +3 bonus hours; admins approve or deny
-- **Smart model routing** — messages auto-classified by a lightweight Ollama model, then routed to the appropriate configured model (simple/moderate/complex/vision)
+- **Model routing** — text messages go to the configured moderate model, image attachments route to the vision model
 - **Full conversation history** — all messages stored with model used and token count
 - **Admin panel** — full visibility into users, conversations, usage stats, and extension requests
 - **Structured logging** — pino with pretty-printing in development, JSON in production
@@ -25,7 +25,7 @@ KickoffAI gives every Kickoff Africa team member access to Ollama-powered chat w
 | Runtime | Node.js + TypeScript |
 | Framework | Express 5 |
 | Database | PostgreSQL |
-| AI | Ollama (self-hosted, via HTTP API) |
+| AI | Ollama — chat on Ollama's cloud API, embeddings/vision self-hosted |
 | Auth | JWT (`jsonwebtoken`) + magic links |
 | Logging | pino + pino-http |
 | Docs | swagger-jsdoc + swagger-ui-express |
@@ -36,7 +36,7 @@ KickoffAI gives every Kickoff Africa team member access to Ollama-powered chat w
 
 - Node.js 18+
 - PostgreSQL 14+
-- An Ollama server reachable over HTTP (with the desired models pulled)
+- An Ollama Cloud API key (for chat), and an Ollama server reachable over HTTP (for embeddings/vision, with the desired models pulled)
 - SMTP credentials (or `NODE_ENV=development` to log magic links to console)
 
 ### Installation
@@ -68,11 +68,14 @@ SMTP_PASS=your-password
 SMTP_FROM=noreply@kickoff.africa
 APP_URL=http://localhost:3000
 ADMIN_EMAIL=work@kickoff.africa
+OLLAMA_CLOUD_BASE_URL=https://ollama.com
+OLLAMA_API_KEY=your-ollama-cloud-api-key
+OLLAMA_SIMPLE_MODEL=gpt-oss:120b-cloud
+OLLAMA_MODERATE_MODEL=gpt-oss:120b-cloud
+OLLAMA_COMPLEX_MODEL=gpt-oss:120b-cloud
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_SIMPLE_MODEL=gemma4b:latest
-OLLAMA_MODERATE_MODEL=gemma4b:latest
-OLLAMA_COMPLEX_MODEL=gemma4b:latest
-OLLAMA_VISION_MODEL=gemma4b:latest
+OLLAMA_VISION_MODEL=gemma3:4b
+OLLAMA_EMBED_MODEL=nomic-embed-text
 ```
 
 ### Database Setup
@@ -151,16 +154,16 @@ Interactive docs available at `http://localhost:3000/docs` when the server is ru
 
 ## Model Routing
 
-Each message is classified by an Ollama model before the main response is generated:
+Every text message goes straight to the moderate model, run on Ollama's cloud API — there's no per-message classification step. Image attachments are currently disabled at the API level (see `POST /conversations/:id/messages`), but would route to the self-hosted vision model once re-enabled. Embeddings (knowledge base + web search cache) always run on the self-hosted box, since Ollama's cloud tier only offers chat models.
 
-| Complexity | Examples | Model |
-|------------|----------|-------|
-| Simple | Greetings, factual lookups, basic tasks | `OLLAMA_SIMPLE_MODEL` |
-| Moderate | Analysis, comparisons, multi-step reasoning | `OLLAMA_MODERATE_MODEL` |
-| Complex | Deep research, creative writing, expert problems | `OLLAMA_COMPLEX_MODEL` |
-| Image attached | Any message with an image attachment | `OLLAMA_VISION_MODEL` |
+| Use | Model | Where it runs |
+|-----|-------|----------------|
+| Chat messages | `OLLAMA_MODERATE_MODEL` | Ollama cloud |
+| Conversation title generation | `OLLAMA_SIMPLE_MODEL` | Ollama cloud |
+| Image attachments (disabled) | `OLLAMA_VISION_MODEL` | Self-hosted |
+| Embeddings | `OLLAMA_EMBED_MODEL` | Self-hosted |
 
-All model names are configured via environment variables and default to `gemma4b:latest`.
+Cloud model names default to `gpt-oss:120b-cloud`; the self-hosted vision/embed models default to `gemma3:4b` / `nomic-embed-text`.
 
 ## Admin Bootstrap
 
@@ -193,7 +196,7 @@ src/
 │   └── messages.ts      # POST /conversations/:id/messages
 ├── services/
 │   ├── access.ts        # Access window logic (get/create/addUsage/extend)
-│   ├── ollama.ts        # Ollama HTTP API (classify + route + chat)
+│   ├── ollama.ts        # Ollama API (cloud chat/title + self-hosted embed/vision)
 │   ├── email.ts         # nodemailer magic link delivery
 │   └── token.ts         # Magic token generation + JWT sign/verify
 └── index.ts             # App bootstrap, router mounting, server start
@@ -215,10 +218,13 @@ src/
 | `SMTP_FROM` | No | `noreply@kickoff.africa` | Sender address |
 | `APP_URL` | No | `http://localhost:3000` | Public URL (used in magic link emails) |
 | `ADMIN_EMAIL` | Yes | — | Email address seeded as admin on startup |
-| `OLLAMA_BASE_URL` | No | `http://203.161.52.27:11434` | Ollama server URL |
-| `OLLAMA_SIMPLE_MODEL` | No | `gemma4b:latest` | Model for simple-complexity messages |
-| `OLLAMA_MODERATE_MODEL` | No | `gemma4b:latest` | Model for moderate-complexity messages |
-| `OLLAMA_COMPLEX_MODEL` | No | `gemma4b:latest` | Model for complex-complexity messages |
-| `OLLAMA_VISION_MODEL` | No | `gemma4b:latest` | Model used when an image is attached |
+| `OLLAMA_CLOUD_BASE_URL` | No | `https://ollama.com` | Ollama cloud API base URL |
+| `OLLAMA_API_KEY` | Yes | — | Ollama Cloud API key |
+| `OLLAMA_SIMPLE_MODEL` | No | `gpt-oss:120b-cloud` | Cloud model used for conversation title generation |
+| `OLLAMA_MODERATE_MODEL` | No | `gpt-oss:120b-cloud` | Cloud model used for chat messages |
+| `OLLAMA_COMPLEX_MODEL` | No | `gpt-oss:120b-cloud` | Reserved for future complexity-based routing |
+| `OLLAMA_BASE_URL` | No | `http://203.161.52.27:11434` | Self-hosted Ollama server URL (embeddings + vision) |
+| `OLLAMA_VISION_MODEL` | No | `gemma3:4b` | Self-hosted model used when an image is attached (currently disabled) |
+| `OLLAMA_EMBED_MODEL` | No | `nomic-embed-text` | Self-hosted embedding model for the knowledge base and web search cache |
 | `LOG_LEVEL` | No | `info` | pino log level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`) |
 | `NODE_ENV` | No | — | Set to `production` to enable JSON logs and SMTP delivery |
