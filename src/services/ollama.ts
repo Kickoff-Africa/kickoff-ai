@@ -1,5 +1,6 @@
 // src/services/ollama.ts
 import { config } from "../config/env";
+import { logger } from "../config/logger";
 import { withOllamaQueue, withOllamaEmbedQueue } from "./ollamaQueue";
 
 const RETRY_DELAY_MS = 500;
@@ -165,21 +166,36 @@ export async function generateConversationTitle(
         `Respond with ONLY the title, nothing else.\n\n` +
         `Conversation:\n${transcript}\n\nTitle:`,
       stream: false,
-      options: { temperature: 0.2, num_predict: 20 },
+      // gpt-oss:120b-cloud (the default simple model) is a reasoning model:
+      // it spends tokens on a hidden "thinking" pass before writing the
+      // actual `response`, and that pass counts against num_predict same as
+      // the response does. At 20 it never got past thinking — `response`
+      // came back "" every time (confirmed directly against the API: 20
+      // tokens all consumed by `thinking`, done_reason "length"). 300 leaves
+      // enough headroom for a typical thinking pass plus a short title;
+      // `think: false` was tried first but this endpoint ignores it for
+      // /api/generate and still burns the budget on thinking regardless.
+      options: { temperature: 0.2, num_predict: 300 },
     });
 
-    const data = (await res.json()) as { response?: string };
+    const data = (await res.json()) as { response?: string; done_reason?: string };
     const title = (data.response || "")
       .trim()
       .replace(/^["']|["']$/g, "")
       .slice(0, TITLE_CHAR_LIMIT);
 
+    // Not an error — the request succeeded — but an empty response with no
+    // exception thrown would otherwise fail completely silently (falling
+    // back to the truncated-message title in messages.ts with no trace of
+    // why). Worth a log line so a recurring version of the num_predict issue
+    // above doesn't go unnoticed again.
+    if (!title) {
+      logger.warn({ doneReason: data.done_reason }, "Ollama generateConversationTitle got an empty response");
+    }
+
     return title || null;
   } catch (err) {
-    console.error(
-      "Ollama generateConversationTitle failed",
-      (err as Error).message,
-    );
+    logger.error({ err: (err as Error).message }, "Ollama generateConversationTitle failed");
     return null;
   }
 }

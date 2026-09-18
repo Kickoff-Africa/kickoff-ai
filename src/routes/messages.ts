@@ -48,7 +48,7 @@ ACCURACY & GROUNDING
 9. When web search or knowledge base results are included below the conversation, treat them as the current source of truth and answer from them directly — don't just describe what the sources say, and don't fall back on older assumptions that conflict with them.
 10. Never fabricate citations, URLs, statistics, quotes, or names. If you don't have a real source, don't invent one.
 11. For anything time-sensitive (current events, prices, schedules, scores) with no search/KB results provided, say your knowledge may be outdated rather than answering as if current.
-12. For questions about Kickoff Africa itself — its people, policies, products, processes, or other internal/organizational facts — answer only from knowledge base excerpts provided below. If no excerpts are provided, or the ones provided don't actually answer the question, say plainly that it isn't in the knowledge base and you don't know — do not answer from general/background knowledge or guess.
+12. For questions about Kickoff Africa itself — its people, policies, products, processes, or other internal/organizational facts — answer from knowledge base excerpts first. If no excerpts are provided, or the ones provided don't actually answer the question, use the web search results below instead if they answer it. Only if neither the knowledge base nor web search results actually answer the question, say plainly that you don't know — do not answer from general/background knowledge or guess.
 
 SCOPE, SAFETY & TONE
 13. Decline clearly harmful requests (malware, weapons instructions, targeted harassment, etc.) with a brief, direct refusal — no lecture.
@@ -510,7 +510,20 @@ messagesRouter.post(
       res.flushHeaders();
       streamStarted = true;
 
-      if (shouldSearch(content)) {
+      const kbMatches = await queryKnowledgeBase(content);
+      if (kbMatches.length > 0) {
+        usedKnowledgeBase = true;
+        contextBlocks.push(
+          `[Knowledge base excerpts for reference, use if relevant]\n${formatKnowledgeBaseMatches(kbMatches)}`,
+        );
+      }
+
+      // Runs whenever shouldSearch's keyword heuristic fires OR the
+      // knowledge base came up empty — a KB miss shouldn't just become "I
+      // don't know" (see SYSTEM_PROMPT rule 12) when a live search could
+      // actually answer it. Queried after the KB lookup above so this only
+      // fires once we actually know the KB had nothing.
+      if (shouldSearch(content) || kbMatches.length === 0) {
         const location = await geolocateIp(req.ip ?? '');
         const results = await webSearch(content, location ? formatLocation(location) : undefined);
         if (results.length > 0) {
@@ -519,14 +532,6 @@ messagesRouter.post(
             `[Web search results for reference, use if relevant]\n${formatSearchResults(results)}`,
           );
         }
-      }
-
-      const kbMatches = await queryKnowledgeBase(content);
-      if (kbMatches.length > 0) {
-        usedKnowledgeBase = true;
-        contextBlocks.push(
-          `[Knowledge base excerpts for reference, use if relevant]\n${formatKnowledgeBaseMatches(kbMatches)}`,
-        );
       }
 
       const truncatedHistory = truncateHistory(historyRows, config.chatHistoryCharBudget);
