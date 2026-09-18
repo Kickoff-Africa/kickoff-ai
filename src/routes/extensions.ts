@@ -12,7 +12,7 @@ export const extensionsRouter = Router();
  *   post:
  *     tags: [Extensions]
  *     summary: Submit an access extension request
- *     description: Submits a request for additional AI access time (+1, +2, or +3 hours). Only one pending request is allowed at a time.
+ *     description: Submits a request for additional AI token budget (+50000, +100000, or +150000 tokens). Only one pending request is allowed at a time.
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -21,12 +21,12 @@ export const extensionsRouter = Router();
  *         application/json:
  *           schema:
  *             type: object
- *             required: [hours]
+ *             required: [tokens]
  *             properties:
- *               hours:
+ *               tokens:
  *                 type: integer
- *                 enum: [1, 2, 3]
- *                 example: 2
+ *                 enum: [50000, 100000, 150000]
+ *                 example: 100000
  *     responses:
  *       201:
  *         description: Request submitted
@@ -35,7 +35,7 @@ export const extensionsRouter = Router();
  *             schema:
  *               $ref: '#/components/schemas/ExtensionRequest'
  *       400:
- *         description: Invalid hours value
+ *         description: Invalid tokens value
  *         content:
  *           application/json:
  *             schema:
@@ -61,10 +61,10 @@ export const extensionsRouter = Router();
  */
 extensionsRouter.post('/request', authenticate, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { hours } = req.body as { hours: unknown };
+    const { tokens } = req.body as { tokens: unknown };
 
-    if (hours !== 1 && hours !== 2 && hours !== 3) {
-      res.status(400).json({ error: 'hours must be 1, 2, or 3' });
+    if (tokens !== 50_000 && tokens !== 100_000 && tokens !== 150_000) {
+      res.status(400).json({ error: 'tokens must be 50000, 100000, or 150000' });
       return;
     }
 
@@ -81,13 +81,13 @@ extensionsRouter.post('/request', authenticate, async (req: Request, res: Respon
     }
 
     const result = await query(
-      `INSERT INTO access_extension_requests (user_id, requested_hours)
+      `INSERT INTO access_extension_requests (user_id, requested_tokens)
        VALUES ($1, $2)
-       RETURNING id, requested_hours, status, created_at`,
-      [userId, hours],
+       RETURNING id, requested_tokens, status, created_at`,
+      [userId, tokens],
     );
 
-    logger.info({ userId, hours }, 'Extension request submitted');
+    logger.info({ userId, tokens }, 'Extension request submitted');
     res.status(201).json(result.rows[0]);
   } catch (err) {
     logger.error({ err, userId: req.user?.id }, 'POST /extensions/request error');
@@ -144,7 +144,7 @@ extensionsRouter.post('/request', authenticate, async (req: Request, res: Respon
 extensionsRouter.get('/pending', authenticate, requireAdmin, async (_req: Request, res: Response): Promise<void> => {
   try {
     const result = await query(
-      `SELECT r.id, r.user_id, u.email AS user_email, r.requested_hours, r.status, r.created_at
+      `SELECT r.id, r.user_id, u.email AS user_email, r.requested_tokens, r.status, r.created_at
        FROM access_extension_requests r
        JOIN users u ON r.user_id = u.id
        WHERE r.status = 'pending'
@@ -164,7 +164,7 @@ extensionsRouter.get('/pending', authenticate, requireAdmin, async (_req: Reques
  *   post:
  *     tags: [Extensions]
  *     summary: Approve an extension request (admin)
- *     description: Approves a pending extension request and immediately adds the granted time to the user's current access window. The admin may grant a different number of hours than requested.
+ *     description: Approves a pending extension request and immediately adds the granted tokens to the user's current access window. The admin may grant a different amount than requested.
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -180,12 +180,12 @@ extensionsRouter.get('/pending', authenticate, requireAdmin, async (_req: Reques
  *         application/json:
  *           schema:
  *             type: object
- *             required: [hours]
+ *             required: [tokens]
  *             properties:
- *               hours:
+ *               tokens:
  *                 type: integer
- *                 enum: [1, 2, 3]
- *                 example: 1
+ *                 enum: [50000, 100000, 150000]
+ *                 example: 50000
  *     responses:
  *       200:
  *         description: Extension approved
@@ -196,10 +196,10 @@ extensionsRouter.get('/pending', authenticate, requireAdmin, async (_req: Reques
  *               properties:
  *                 message:
  *                   type: string
- *                 granted_hours:
+ *                 granted_tokens:
  *                   type: integer
  *       400:
- *         description: Invalid hours value
+ *         description: Invalid tokens value
  *         content:
  *           application/json:
  *             schema:
@@ -238,10 +238,10 @@ extensionsRouter.get('/pending', authenticate, requireAdmin, async (_req: Reques
 extensionsRouter.post('/:id/approve', authenticate, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { hours } = req.body as { hours: unknown };
+    const { tokens } = req.body as { tokens: unknown };
 
-    if (hours !== 1 && hours !== 2 && hours !== 3) {
-      res.status(400).json({ error: 'hours must be 1, 2, or 3' });
+    if (tokens !== 50_000 && tokens !== 100_000 && tokens !== 150_000) {
+      res.status(400).json({ error: 'tokens must be 50000, 100000, or 150000' });
       return;
     }
 
@@ -271,10 +271,10 @@ extensionsRouter.post('/:id/approve', authenticate, requireAdmin, async (req: Re
       [reviewerId, id],
     );
 
-    await addExtensionToWindow(extensionRequest.user_id, (hours as number) * 3600);
+    await addExtensionToWindow(extensionRequest.user_id, tokens as number);
 
-    logger.info({ requestId: id, reviewerId, grantedHours: hours, userId: extensionRequest.user_id }, 'Extension approved');
-    res.status(200).json({ message: 'Extension approved', granted_hours: hours });
+    logger.info({ requestId: id, reviewerId, grantedTokens: tokens, userId: extensionRequest.user_id }, 'Extension approved');
+    res.status(200).json({ message: 'Extension approved', granted_tokens: tokens });
   } catch (err) {
     logger.error({ err, requestId: req.params.id }, 'POST /extensions/:id/approve error');
     res.status(500).json({ error: 'Internal server error' });

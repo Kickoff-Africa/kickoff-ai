@@ -10,8 +10,8 @@ KickoffAI gives every Kickoff Africa team member access to Ollama-powered chat w
 
 - **Magic link auth** — no passwords; login links sent to org email, expire in 15 minutes and are single-use
 - **JWT sessions** — stateless auth with jti-based revocation on logout
-- **Metered access** — 1 hour of free AI time per 12-hour rolling window, tracked cumulatively in seconds
-- **Extension requests** — users request +1, +2, or +3 bonus hours; admins approve or deny
+- **Metered access** — 50,000 free tokens per 12-hour rolling window, tracked cumulatively per user
+- **Extension requests** — users request +50k, +100k, or +150k bonus tokens; admins approve or deny
 - **Model routing** — text messages go to the configured moderate model, image attachments route to the vision model
 - **Full conversation history** — all messages stored with model used and token count
 - **Admin panel** — full visibility into users, conversations, usage stats, and extension requests
@@ -122,13 +122,13 @@ Interactive docs available at `http://localhost:3000/docs` when the server is ru
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `GET` | `/access/status` | JWT | Remaining time in current window |
+| `GET` | `/access/status` | JWT | Remaining token budget in current window |
 
 ### Extension Requests
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/extensions/request` | JWT | Request +1/+2/+3 hours |
+| `POST` | `/extensions/request` | JWT | Request +50k/+100k/+150k tokens |
 | `GET` | `/extensions/pending` | Admin | List pending requests |
 | `POST` | `/extensions/:id/approve` | Admin | Approve and grant time |
 | `POST` | `/extensions/:id/deny` | Admin | Deny request |

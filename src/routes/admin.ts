@@ -13,7 +13,7 @@ adminRouter.use(authenticate, requireAdmin);
  *   get:
  *     tags: [Admin]
  *     summary: List all users with usage statistics
- *     description: Returns all users with their current access window usage stats (seconds used, total allowed, window expiry). Admin only.
+ *     description: Returns all users with their current access window usage stats (tokens used, total allowed, window expiry). Admin only.
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -28,7 +28,7 @@ adminRouter.use(authenticate, requireAdmin);
  *                   - $ref: '#/components/schemas/User'
  *                   - type: object
  *                     properties:
- *                       seconds_used:
+ *                       tokens_used:
  *                         type: number
  *                       total_allowed:
  *                         type: number
@@ -62,18 +62,21 @@ adminRouter.use(authenticate, requireAdmin);
 adminRouter.get('/users', async (_req: Request, res: Response): Promise<void> => {
   try {
     const result = await query(
+      // 50000 here must match DEFAULT_TOKEN_BUDGET in services/access.ts —
+      // duplicated because this admin listing reads window rows directly
+      // rather than going through getRemainingTokens() per user.
       `SELECT
         u.id,
         u.email,
         u.role,
         u.created_at,
-        COALESCE(w.seconds_used, 0) AS seconds_used,
-        COALESCE(w.seconds_used + w.extension_seconds, 3600) AS total_allowed,
+        COALESCE(w.tokens_used, 0) AS tokens_used,
+        COALESCE(50000 + w.extension_tokens, 50000) AS total_allowed,
         w.window_start,
         w.window_start + INTERVAL '12 hours' AS window_expires_at
       FROM users u
       LEFT JOIN LATERAL (
-        SELECT seconds_used, extension_seconds, window_start
+        SELECT tokens_used, extension_tokens, window_start
         FROM access_windows
         WHERE user_id = u.id
           AND window_start > NOW() - INTERVAL '12 hours'
@@ -325,7 +328,7 @@ adminRouter.get('/extensions', async (req: Request, res: Response): Promise<void
         r.id,
         r.user_id,
         u.email AS user_email,
-        r.requested_hours,
+        r.requested_tokens,
         r.status,
         r.reviewed_by,
         r.reviewed_at,

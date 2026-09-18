@@ -89,7 +89,7 @@ const options: swaggerJsdoc.Options = {
           properties: {
             id: { type: 'string', format: 'uuid' },
             user_id: { type: 'string', format: 'uuid' },
-            requested_hours: { type: 'integer', enum: [1, 2, 3] },
+            requested_tokens: { type: 'integer', enum: [50000, 100000, 150000] },
             status: { type: 'string', enum: ['pending', 'approved', 'denied'] },
             reviewed_by: { type: 'string', format: 'uuid', nullable: true },
             reviewed_at: { type: 'string', format: 'date-time', nullable: true },
@@ -99,9 +99,9 @@ const options: swaggerJsdoc.Options = {
         AccessStatus: {
           type: 'object',
           properties: {
-            seconds_used: { type: 'number' },
+            tokens_used: { type: 'number' },
             total_allowed: { type: 'number' },
-            seconds_remaining: { type: 'number' },
+            tokens_remaining: { type: 'number' },
             window_start: { type: 'string', format: 'date-time' },
             window_expires_at: { type: 'string', format: 'date-time' },
           },

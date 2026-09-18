@@ -1,11 +1,19 @@
 import { query } from '../config/database';
 
+// Free tokens granted per 12-hour rolling window, before any approved
+// extensions. Tokens (prompt + completion, same figure already stored per
+// message in messages.tokens_used) rather than wall-clock seconds, since a
+// fast cloud model can burn through a large token budget in very little
+// time — "seconds of generation time" stopped being a meaningful cap once
+// chat moved off the old CPU-bound self-hosted box.
+const DEFAULT_TOKEN_BUDGET = 50_000;
+
 export interface AccessWindow {
   id: string;
   userId: string;
   windowStart: Date;
-  secondsUsed: number;
-  extensionSeconds: number;
+  tokensUsed: number;
+  extensionTokens: number;
   createdAt: Date;
 }
 
@@ -13,16 +21,16 @@ function mapRow(row: {
   id: string;
   user_id: string;
   window_start: Date;
-  seconds_used: number;
-  extension_seconds: number;
+  tokens_used: number;
+  extension_tokens: number;
   created_at: Date;
 }): AccessWindow {
   return {
     id: row.id,
     userId: row.user_id,
     windowStart: row.window_start,
-    secondsUsed: row.seconds_used,
-    extensionSeconds: row.extension_seconds,
+    tokensUsed: row.tokens_used,
+    extensionTokens: row.extension_tokens,
     createdAt: row.created_at,
   };
 }
@@ -41,7 +49,7 @@ export async function getOrCreateWindow(userId: string): Promise<AccessWindow> {
   }
 
   const insertResult = await query(
-    `INSERT INTO access_windows (user_id, window_start, seconds_used, extension_seconds)
+    `INSERT INTO access_windows (user_id, window_start, tokens_used, extension_tokens)
      VALUES ($1, NOW(), 0, 0)
      RETURNING *`,
     [userId],
@@ -50,39 +58,39 @@ export async function getOrCreateWindow(userId: string): Promise<AccessWindow> {
   return mapRow(insertResult.rows[0]);
 }
 
-export async function getRemainingSeconds(userId: string): Promise<{
-  secondsUsed: number;
+export async function getRemainingTokens(userId: string): Promise<{
+  tokensUsed: number;
   totalAllowed: number;
-  secondsRemaining: number;
+  tokensRemaining: number;
   windowStart: Date;
   windowExpiresAt: Date;
 }> {
   const window = await getOrCreateWindow(userId);
-  const totalAllowed = 3600 + window.extensionSeconds;
-  const secondsRemaining = Math.max(0, totalAllowed - window.secondsUsed);
+  const totalAllowed = DEFAULT_TOKEN_BUDGET + window.extensionTokens;
+  const tokensRemaining = Math.max(0, totalAllowed - window.tokensUsed);
   const windowExpiresAt = new Date(window.windowStart.getTime() + 12 * 60 * 60 * 1000);
 
   return {
-    secondsUsed: window.secondsUsed,
+    tokensUsed: window.tokensUsed,
     totalAllowed,
-    secondsRemaining,
+    tokensRemaining,
     windowStart: window.windowStart,
     windowExpiresAt,
   };
 }
 
-export async function addUsage(userId: string, seconds: number): Promise<void> {
+export async function addUsage(userId: string, tokens: number): Promise<void> {
   const window = await getOrCreateWindow(userId);
   await query(
-    `UPDATE access_windows SET seconds_used = seconds_used + $1 WHERE id = $2`,
-    [Math.ceil(seconds), window.id],
+    `UPDATE access_windows SET tokens_used = tokens_used + $1 WHERE id = $2`,
+    [Math.max(0, Math.round(tokens)), window.id],
   );
 }
 
-export async function addExtensionToWindow(userId: string, extraSeconds: number): Promise<void> {
+export async function addExtensionToWindow(userId: string, extraTokens: number): Promise<void> {
   const window = await getOrCreateWindow(userId);
   await query(
-    `UPDATE access_windows SET extension_seconds = extension_seconds + $1 WHERE id = $2`,
-    [extraSeconds, window.id],
+    `UPDATE access_windows SET extension_tokens = extension_tokens + $1 WHERE id = $2`,
+    [extraTokens, window.id],
   );
 }

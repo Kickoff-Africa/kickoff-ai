@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate';
-import { getRemainingSeconds } from '../services/access';
+import { getRemainingTokens } from '../services/access';
 import { logger } from '../config/logger';
 
 export const accessRouter = Router();
@@ -10,8 +10,8 @@ export const accessRouter = Router();
  * /access/status:
  *   get:
  *     tags: [Access]
- *     summary: Get remaining AI access time
- *     description: Returns the authenticated user's current access window usage and remaining time.
+ *     summary: Get remaining AI token budget
+ *     description: Returns the authenticated user's current access window usage and remaining token budget.
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -36,11 +36,11 @@ export const accessRouter = Router();
  */
 accessRouter.get('/status', authenticate, async (req, res) => {
   try {
-    const result = await getRemainingSeconds(req.user!.id);
+    const result = await getRemainingTokens(req.user!.id);
     res.status(200).json({
-      seconds_used: result.secondsUsed,
+      tokens_used: result.tokensUsed,
       total_allowed: result.totalAllowed,
-      seconds_remaining: result.secondsRemaining,
+      tokens_remaining: result.tokensRemaining,
       window_start: result.windowStart,
       window_expires_at: result.windowExpiresAt,
     });

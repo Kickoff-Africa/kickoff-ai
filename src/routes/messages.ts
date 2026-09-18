@@ -12,7 +12,7 @@ import { registerGeneration, unregisterGeneration, cancelGeneration } from '../s
 import { geolocateIp, formatLocation } from '../services/geolocation';
 import { processFile, buildMessageContent } from '../services/fileProcessor';
 import { uploadToCloudinary } from '../services/cloudinary';
-import { addUsage, getRemainingSeconds } from '../services/access';
+import { addUsage, getRemainingTokens } from '../services/access';
 
 export const messagesRouter = Router({ mergeParams: true });
 
@@ -204,7 +204,7 @@ const upload = multer({
  *       - `{"type":"done", message, model_used, tokens_used, used_web_search,
  *         used_knowledge_base, access}` — exactly once, at the end of a successful generation.
  *         `access` carries the same fields the old `X-Access-*` response headers used to
- *         (`seconds_remaining`, `seconds_used`, `total_allowed`, `window_expires_at`) — those
+ *         (`tokens_remaining`, `tokens_used`, `total_allowed`, `window_expires_at`) — those
  *         headers are gone, since headers can't be set after the stream has already started.
  *       - `{"type":"cancelled", message?, model_used?, tokens_used?, used_web_search?,
  *         used_knowledge_base?, access}` — sent instead of `"done"` when `POST
@@ -312,9 +312,9 @@ const upload = multer({
  *                   type: object
  *                   description: Present on "done" and "cancelled" lines — replaces the old X-Access-* headers.
  *                   properties:
- *                     seconds_remaining:
+ *                     tokens_remaining:
  *                       type: integer
- *                     seconds_used:
+ *                     tokens_used:
  *                       type: integer
  *                     total_allowed:
  *                       type: integer
@@ -343,7 +343,7 @@ const upload = multer({
  *             schema:
  *               $ref: '#/components/schemas/Error'
  *       429:
- *         description: Access time exhausted
+ *         description: Access token budget exhausted
  *         content:
  *           application/json:
  *             schema:
@@ -351,7 +351,7 @@ const upload = multer({
  *               properties:
  *                 error:
  *                   type: string
- *                 seconds_used:
+ *                 tokens_used:
  *                   type: number
  *                 total_allowed:
  *                   type: number
@@ -580,17 +580,19 @@ messagesRouter.post(
 
       // A cancel with nothing generated yet leaves no trace — same as if the
       // message had never been sent, rather than saving an empty assistant bubble.
+      // tokensUsed reflects whatever Ollama had actually processed before the
+      // cancel landed (often 0, since a cancel this early usually beats even
+      // the prompt eval) — that's what gets charged, not a wall-clock guess.
       if (cancelled && !assistantContent.trim()) {
-        const elapsedSeconds = (Date.now() - startTime) / 1000;
-        await addUsage(userId, elapsedSeconds);
-        const accessState = await getRemainingSeconds(userId);
-        logger.info({ userId, conversationId, elapsedSeconds }, 'Message generation cancelled before any content');
+        await addUsage(userId, tokensUsed);
+        const accessState = await getRemainingTokens(userId);
+        logger.info({ userId, conversationId, tokensUsed }, 'Message generation cancelled before any content');
         res.write(
           JSON.stringify({
             type: 'cancelled',
             access: {
-              seconds_remaining: accessState.secondsRemaining,
-              seconds_used: accessState.secondsUsed,
+              tokens_remaining: accessState.tokensRemaining,
+              tokens_used: accessState.tokensUsed,
               total_allowed: accessState.totalAllowed,
               window_expires_at: accessState.windowExpiresAt.toISOString(),
             },
@@ -650,14 +652,16 @@ messagesRouter.post(
         );
       }
 
-      const elapsedSeconds = (Date.now() - startTime) / 1000;
-      await addUsage(userId, elapsedSeconds);
+      await addUsage(userId, tokensUsed);
 
       // Headers are already flushed by this point (streaming started above),
       // so post-generation access state goes in the final stream line
       // instead of the old X-Access-* response headers.
-      const accessState = await getRemainingSeconds(userId);
+      const accessState = await getRemainingTokens(userId);
 
+      // elapsedSeconds is logged for latency visibility only — it no longer
+      // drives billing (see addUsage above), just tokensUsed does.
+      const elapsedSeconds = (Date.now() - startTime) / 1000;
       logger.info(
         {
           userId,
@@ -681,8 +685,8 @@ messagesRouter.post(
           used_web_search: usedWebSearch,
           used_knowledge_base: usedKnowledgeBase,
           access: {
-            seconds_remaining: accessState.secondsRemaining,
-            seconds_used: accessState.secondsUsed,
+            tokens_remaining: accessState.tokensRemaining,
+            tokens_used: accessState.tokensUsed,
             total_allowed: accessState.totalAllowed,
             window_expires_at: accessState.windowExpiresAt.toISOString(),
           },
