@@ -79,7 +79,7 @@ const options: swaggerJsdoc.Options = {
               description: 'Original filename of the attachment.',
               example: 'q3-report.pdf',
             },
-            model_used: { type: 'string', nullable: true, example: 'gemma4b:latest' },
+            model_used: { type: 'string', nullable: true, example: 'gpt-oss:120b-cloud' },
             tokens_used: { type: 'integer', nullable: true },
             created_at: { type: 'string', format: 'date-time' },
           },
