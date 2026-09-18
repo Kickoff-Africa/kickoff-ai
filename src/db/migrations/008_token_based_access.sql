@@ -10,25 +10,11 @@ ALTER TABLE access_windows RENAME COLUMN extension_seconds TO extension_tokens;
 
 ALTER TABLE access_extension_requests RENAME COLUMN requested_hours TO requested_tokens;
 
--- Existing rows still hold hour values (1, 2, 3) under the renamed column —
--- convert them tier-for-tier to their token equivalents before the new
--- CHECK constraint below is added, or it fails on every pre-existing row
--- (pending, approved, or denied; this is a unit conversion of history, not
--- a status-dependent change).
-UPDATE access_extension_requests
-SET requested_tokens = CASE requested_tokens
-  WHEN 1 THEN 50000
-  WHEN 2 THEN 100000
-  WHEN 3 THEN 150000
-  ELSE requested_tokens
-END
-WHERE requested_tokens IN (1, 2, 3);
-
 -- The old CHECK constraint (requested_hours IN (1, 2, 3)) still references
--- the renamed column by whatever name Postgres auto-generated it under —
--- looked up dynamically rather than guessed, so this doesn't silently leave
--- a stale constraint (or worse, collide with the new one below) if the
--- generated name doesn't match the obvious guess.
+-- the renamed column, still enforcing 1/2/3 at this point — dropped first
+-- (looked up dynamically rather than guessed, so this doesn't silently miss
+-- it if the generated name doesn't match the obvious guess) so the data
+-- conversion below isn't rejected by the very constraint it's replacing.
 DO $$
 DECLARE
   old_constraint_name TEXT;
@@ -44,6 +30,19 @@ BEGIN
     EXECUTE format('ALTER TABLE access_extension_requests DROP CONSTRAINT %I', old_constraint_name);
   END IF;
 END $$;
+
+-- Existing rows still hold hour values (1, 2, 3) under the renamed column —
+-- convert them tier-for-tier to their token equivalents before the new
+-- CHECK constraint below is added (this is a unit conversion of history,
+-- so it applies regardless of status: pending, approved, or denied).
+UPDATE access_extension_requests
+SET requested_tokens = CASE requested_tokens
+  WHEN 1 THEN 50000
+  WHEN 2 THEN 100000
+  WHEN 3 THEN 150000
+  ELSE requested_tokens
+END
+WHERE requested_tokens IN (1, 2, 3);
 
 -- Extension tiers: +50k / +100k / +150k tokens (was +1h / +2h / +3h).
 ALTER TABLE access_extension_requests
