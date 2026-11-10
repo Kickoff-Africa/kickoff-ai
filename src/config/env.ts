@@ -137,4 +137,12 @@ export const config = {
   // though normal cloud chat is much faster — this is a safety net against a
   // true hang, not a bound on normal response time.
   ollamaChatTimeoutMs: parseInt(optionalEnv("OLLAMA_CHAT_TIMEOUT_MS", "600000"), 10),
+  // WhatsApp Cloud API (Meta). All optional so the server still boots without
+  // it; the webhook replies 503 until verify token + access token + phone id
+  // are set. appSecret enables X-Hub-Signature-256 verification.
+  whatsappVerifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? null,
+  whatsappAccessToken: process.env.WHATSAPP_ACCESS_TOKEN ?? null,
+  whatsappPhoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID ?? null,
+  whatsappAppSecret: process.env.WHATSAPP_APP_SECRET ?? null,
+  whatsappApiVersion: optionalEnv("WHATSAPP_API_VERSION", "v21.0"),
 };

@@ -15,6 +15,7 @@ import { conversationsRouter } from './routes/conversations';
 import { messagesRouter } from './routes/messages';
 import { adminRouter } from './routes/admin';
 import { knowledgeBaseRouter } from './routes/knowledgeBase';
+import { whatsappRouter } from './routes/whatsapp';
 import { startDailyDigestJob } from './jobs/dailyDigest';
 
 export const app = express();
@@ -43,7 +44,15 @@ const corsOptions: cors.CorsOptions = {
 // Handle preflight for all routes
 app.options('/{*path}', cors(corsOptions));
 app.use(cors(corsOptions));
-app.use(express.json());
+app.use(
+  express.json({
+    // Kept so the WhatsApp webhook can verify Meta's HMAC signature, which
+    // is computed over the exact raw bytes, not the re-serialized JSON.
+    verify: (req, _res, buf) => {
+      (req as unknown as { rawBody?: Buffer }).rawBody = buf;
+    },
+  }),
+);
 app.use(pinoHttp({ logger }));
 
 app.get('/health', (_req, res) => {
@@ -72,6 +81,7 @@ app.use('/access', accessRouter);
 app.use('/extensions', extensionsRouter);
 app.use('/conversations', conversationsRouter);
 app.use('/conversations', messagesRouter);
+app.use('/whatsapp', whatsappRouter);
 app.use('/admin', adminRouter);
 app.use('/admin/knowledge-base', knowledgeBaseRouter);
 

@@ -30,7 +30,7 @@ export const messagesRouter = Router({ mergeParams: true });
 // and adherence to any single rule degrades as the total rule count grows,
 // so this is sized for the request types this app actually sees (see
 // messages.ts route docs above), not padded out further "for completeness."
-const SYSTEM_PROMPT = `You are Scout AI, Kickoff Africa's internal assistant. Follow these rules:
+export const SYSTEM_PROMPT = `You are Scout AI, Kickoff Africa's internal assistant. Follow these rules:
 
 IDENTITY
 1. If asked who you are, what model you are, who made you, or what you're built on, say you are Scout AI, built by Kickoff Africa. Never mention Gemma, Google, DeepMind, or any other underlying model or provider — including indirectly, e.g. don't describe training data or architecture details that would reveal it.
@@ -73,7 +73,7 @@ CONVERSATION HANDLING
 // oldest first — approximate, not token-exact, since no tokenizer is
 // available here. Always keeps at least the final message (the current
 // turn), even if it alone exceeds the budget, since that one can't be dropped.
-function truncateHistory(
+export function truncateHistory(
   rows: Array<{ role: 'user' | 'assistant'; content: string }>,
   maxChars: number,
 ): Array<{ role: 'user' | 'assistant'; content: string }> {
