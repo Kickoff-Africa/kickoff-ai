@@ -155,11 +155,17 @@ export const docsClientJs: string = `
   }
 
   /* ── Code examples ─────────────────────────────────────── */
+  // An empty security requirement ({}) in the spec means auth is optional.
+  function authOptional(op) {
+    return !!(op.security && op.security.some(function (r) { return Object.keys(r).length === 0; }));
+  }
+
   function curlExample(method, path, op, base) {
     var M = method.toUpperCase();
     var json = op.requestBody && op.requestBody.content && op.requestBody.content['application/json'];
     var form = op.requestBody && op.requestBody.content && op.requestBody.content['multipart/form-data'];
-    var lines = ['curl -X ' + M + ' \\\\', '  "' + base + path + '" \\\\', '  -H "Authorization: Bearer $TOKEN"'];
+    var lines = ['curl -X ' + M + ' \\\\', '  "' + base + path + '"' + ((!authOptional(op) || json || form) ? ' \\\\' : '')];
+    if (!authOptional(op)) lines.push('  -H "Authorization: Bearer $TOKEN"');
 
     if (json) {
       var ex = JSON.stringify(exampleFromSchema(json.schema), null, 2).replace(/\\n/g, '\\n  ');
@@ -196,7 +202,7 @@ export const docsClientJs: string = `
     lines.push('  headers: {');
     if (json) lines.push('    "Content-Type": "application/json",');
     if (form) lines.push('    // Do NOT set Content-Type manually — browser sets the boundary');
-    lines.push('    "Authorization": "Bearer " + token,');
+    if (!authOptional(op)) lines.push('    "Authorization": "Bearer " + token,');
     lines.push('  },');
     if (json) {
       var ex = exampleFromSchema(json.schema);
@@ -394,7 +400,7 @@ export const docsClientJs: string = `
       '<div class="intro-pills">' +
       '<div class="intro-pill"><span class="version-tag">v' + esc((spec.info && spec.info.version) || '1.0') + '</span></div>' +
       '<div class="intro-pill"><strong>Base URL</strong> <code>' + esc(base) + '</code></div>' +
-      '<div class="intro-pill"><strong>Auth</strong> Bearer JWT</div>' +
+      '<div class="intro-pill"><strong>Auth</strong> Bearer JWT (not required for chat endpoints)</div>' +
       '</div></div>';
 
     var sections = '';

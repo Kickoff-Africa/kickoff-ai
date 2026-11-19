@@ -10,7 +10,7 @@ KickoffAI gives every Kickoff Africa team member access to Ollama-powered chat w
 
 - **Magic link auth** — no passwords; login links sent to org email, expire in 15 minutes and are single-use
 - **JWT sessions** — stateless auth with jti-based revocation on logout
-- **Metered access** — 50,000 free tokens per 12-hour rolling window, tracked cumulatively per user
+- **Open chat (faan branch)** — conversation and message endpoints need no login or Bearer token; unauthenticated callers share a guest user (`guest@public.local`), and a valid JWT is still honoured. Token limits are not enforced (usage is still tracked)
 - **Extension requests** — users request +50k, +100k, or +150k bonus tokens; admins approve or deny
 - **Model routing** — text messages go to the configured moderate model, image attachments route to the vision model
 - **Full conversation history** — all messages stored with model used and token count
@@ -137,10 +137,10 @@ Interactive docs available at `http://localhost:3000/docs` when the server is ru
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| `POST` | `/conversations` | JWT | Create conversation |
-| `GET` | `/conversations` | JWT | List your conversations |
-| `GET` | `/conversations/:id` | JWT | Get conversation + messages |
-| `POST` | `/conversations/:id/messages` | JWT | Send message, receive Ollama response |
+| `POST` | `/conversations` | — (optional JWT) | Create conversation |
+| `GET` | `/conversations` | — (optional JWT) | List your conversations |
+| `GET` | `/conversations/:id` | — (optional JWT) | Get conversation + messages |
+| `POST` | `/conversations/:id/messages` | — (optional JWT) | Send message, receive Ollama response |
 
 ### Admin
 
@@ -186,7 +186,7 @@ src/
 │       └── 002_add_extension_seconds.sql
 ├── middleware/
 │   ├── authenticate.ts  # JWT verification + requireAdmin
-│   └── checkAccess.ts   # Access window gate (429 when exhausted)
+│   └── checkAccess.ts   # Reports access-window usage in headers (no longer blocks)
 ├── routes/
 │   ├── access.ts        # GET /access/status
 │   ├── admin.ts         # /admin/* (admin-only)

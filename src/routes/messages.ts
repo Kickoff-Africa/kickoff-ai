@@ -99,7 +99,7 @@ const upload = multer({
  *     tags: [Messages]
  *     summary: Send a message and receive an AI response
  *     description: |
- *       Sends a user message within a conversation and returns the AI response.
+ *       Sends a user message within a conversation and returns the AI response. No authentication is required.
  *
  *       ## Sending a plain text message
  *
@@ -110,7 +110,6 @@ const upload = multer({
  *         method: 'POST',
  *         headers: {
  *           'Content-Type': 'application/json',
- *           'Authorization': `Bearer ${token}`,
  *         },
  *         body: JSON.stringify({ content: 'What is the capital of France?' }),
  *       })
@@ -129,7 +128,6 @@ const upload = multer({
  *
  *       fetch(`/conversations/${id}/messages`, {
  *         method: 'POST',
- *         headers: { 'Authorization': `Bearer ${token}` },
  *         body: form,
  *       })
  *       ```
@@ -230,9 +228,7 @@ const upload = multer({
  *
  *       If a conversation has no title yet, it is automatically set from the first 50 characters
  *       of the first user message.
- *     security:
- *       - {}
- *       - bearerAuth: []
+ *     security: []
  *     parameters:
  *       - in: path
  *         name: conversationId
@@ -754,9 +750,7 @@ messagesRouter.post(
  *
  *       No-op-safe to call when nothing is in flight (e.g. it already finished) — returns 404
  *       rather than an error.
- *     security:
- *       - {}
- *       - bearerAuth: []
+ *     security: []
  *     parameters:
  *       - in: path
  *         name: conversationId

@@ -12,9 +12,7 @@ export const conversationsRouter = Router();
  *     tags: [Conversations]
  *     summary: Create a new conversation
  *     description: Creates a new empty conversation and returns its ID.
- *     security:
- *       - {}
- *       - bearerAuth: []
+ *     security: []
  *     responses:
  *       201:
  *         description: Conversation created
@@ -54,10 +52,8 @@ conversationsRouter.post('/', optionalAuthenticate, async (req, res) => {
  *   get:
  *     tags: [Conversations]
  *     summary: List all conversations
- *     description: Returns all conversations belonging to the authenticated user, ordered by most recently active.
- *     security:
- *       - {}
- *       - bearerAuth: []
+ *     description: Returns all conversations in the shared public (guest) account, ordered by most recently active.
+ *     security: []
  *     responses:
  *       200:
  *         description: List of conversations
@@ -110,9 +106,7 @@ conversationsRouter.get('/', optionalAuthenticate, async (req, res) => {
  *       For user messages, `content` is the original prompt text (not the embedded file context
  *       sent to the AI). Attachment metadata is returned via `attachment_url`, `attachment_type`,
  *       and `attachment_name` so the frontend can render previews or download links.
- *     security:
- *       - {}
- *       - bearerAuth: []
+ *     security: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -200,13 +194,11 @@ conversationsRouter.get('/:id', optionalAuthenticate, async (req, res) => {
  *     tags: [Conversations]
  *     summary: Delete a conversation
  *     description: |
- *       Removes a conversation from the authenticated user's own view. This is a soft delete —
+ *       Removes a conversation from the public conversation list. This is a soft delete —
  *       the conversation and its messages are kept for admin visibility (see `GET
  *       /admin/users/{userId}/conversations`), they just stop appearing for the user and can no
  *       longer be fetched or messaged by them.
- *     security:
- *       - {}
- *       - bearerAuth: []
+ *     security: []
  *     parameters:
  *       - in: path
  *         name: id
