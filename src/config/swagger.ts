@@ -1,8 +1,12 @@
 import swaggerJsdoc from 'swagger-jsdoc';
 
-const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
+const baseUrl = process.env.SWAGGER_BASE_URL ?? 'https://api-faan.kickoff.africa';
 
-const servers = [{ url: appUrl, description: appUrl.includes('localhost') ? 'Local development' : 'Production' }];
+const servers = [{ url: baseUrl, description: 'Production' }];
+
+if (process.env.NODE_ENV !== 'production') {
+  servers.push({ url: process.env.APP_URL ?? 'http://localhost:3000', description: 'Local development' });
+}
 
 const options: swaggerJsdoc.Options = {
   definition: {
