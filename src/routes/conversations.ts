@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { query } from '../config/database';
 import { logger } from '../config/logger';
-import { authenticate } from '../middleware/authenticate';
+import { optionalAuthenticate } from '../middleware/authenticate';
 
 export const conversationsRouter = Router();
 
@@ -13,6 +13,7 @@ export const conversationsRouter = Router();
  *     summary: Create a new conversation
  *     description: Creates a new empty conversation and returns its ID.
  *     security:
+ *       - {}
  *       - bearerAuth: []
  *     responses:
  *       201:
@@ -21,12 +22,6 @@ export const conversationsRouter = Router();
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Conversation'
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  *       500:
  *         description: Internal server error
  *         content:
@@ -34,7 +29,7 @@ export const conversationsRouter = Router();
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-conversationsRouter.post('/', authenticate, async (req, res) => {
+conversationsRouter.post('/', optionalAuthenticate, async (req, res) => {
   try {
     const userId = req.user!.id;
     const result = await query(
@@ -61,6 +56,7 @@ conversationsRouter.post('/', authenticate, async (req, res) => {
  *     summary: List all conversations
  *     description: Returns all conversations belonging to the authenticated user, ordered by most recently active.
  *     security:
+ *       - {}
  *       - bearerAuth: []
  *     responses:
  *       200:
@@ -71,12 +67,6 @@ conversationsRouter.post('/', authenticate, async (req, res) => {
  *               type: array
  *               items:
  *                 $ref: '#/components/schemas/Conversation'
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  *       500:
  *         description: Internal server error
  *         content:
@@ -84,7 +74,7 @@ conversationsRouter.post('/', authenticate, async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-conversationsRouter.get('/', authenticate, async (req, res) => {
+conversationsRouter.get('/', optionalAuthenticate, async (req, res) => {
   try {
     const userId = req.user!.id;
     const result = await query(
@@ -121,6 +111,7 @@ conversationsRouter.get('/', authenticate, async (req, res) => {
  *       sent to the AI). Attachment metadata is returned via `attachment_url`, `attachment_type`,
  *       and `attachment_name` so the frontend can render previews or download links.
  *     security:
+ *       - {}
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
@@ -143,12 +134,6 @@ conversationsRouter.get('/', authenticate, async (req, res) => {
  *                       type: array
  *                       items:
  *                         $ref: '#/components/schemas/Message'
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  *       404:
  *         description: Conversation not found
  *         content:
@@ -162,7 +147,7 @@ conversationsRouter.get('/', authenticate, async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-conversationsRouter.get('/:id', authenticate, async (req, res) => {
+conversationsRouter.get('/:id', optionalAuthenticate, async (req, res) => {
   try {
     const userId = req.user!.id;
     const conversationId = req.params.id;
@@ -220,6 +205,7 @@ conversationsRouter.get('/:id', authenticate, async (req, res) => {
  *       /admin/users/{userId}/conversations`), they just stop appearing for the user and can no
  *       longer be fetched or messaged by them.
  *     security:
+ *       - {}
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
@@ -231,12 +217,6 @@ conversationsRouter.get('/:id', authenticate, async (req, res) => {
  *     responses:
  *       204:
  *         description: Conversation deleted
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  *       404:
  *         description: Conversation not found (or already deleted)
  *         content:
@@ -250,7 +230,7 @@ conversationsRouter.get('/:id', authenticate, async (req, res) => {
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-conversationsRouter.delete('/:id', authenticate, async (req, res) => {
+conversationsRouter.delete('/:id', optionalAuthenticate, async (req, res) => {
   try {
     const userId = req.user!.id;
     const conversationId = req.params.id;

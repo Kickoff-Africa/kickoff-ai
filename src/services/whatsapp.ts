@@ -5,7 +5,7 @@ import { logger } from '../config/logger';
 import { chatStream, getModelForComplexity } from './ollama';
 import { queryKnowledgeBase, formatKnowledgeBaseMatches } from './knowledgeBase';
 import { shouldSearch, webSearch, formatSearchResults } from './webSearch';
-import { addUsage, getRemainingTokens } from './access';
+import { addUsage } from './access';
 import { SYSTEM_PROMPT, truncateHistory } from '../routes/messages';
 
 // WhatsApp rejects text bodies over 4096 characters.
@@ -113,15 +113,6 @@ export async function handleIncomingMessage(msg: IncomingWhatsAppMessage): Promi
     return;
   }
   const content = msg.text.body.trim();
-
-  const access = await getRemainingTokens(userId);
-  if (access.tokensRemaining <= 0) {
-    await sendWhatsAppText(
-      msg.from,
-      `You've used your token allowance for this window. It resets at ${access.windowExpiresAt.toUTCString()}, or you can request an extension in the Scout AI web app.`,
-    );
-    return;
-  }
 
   void markRead(msg.id);
 

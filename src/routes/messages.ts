@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { config } from '../config/env';
 import { query } from '../config/database';
 import { logger } from '../config/logger';
-import { authenticate } from '../middleware/authenticate';
+import { optionalAuthenticate } from '../middleware/authenticate';
 import { checkAccess } from '../middleware/checkAccess';
 import { getModelForComplexity, chatStream, generateConversationTitle, OllamaUnavailableError } from '../services/ollama';
 import { shouldSearch, webSearch, formatSearchResults } from '../services/webSearch';
@@ -231,6 +231,7 @@ const upload = multer({
  *       If a conversation has no title yet, it is automatically set from the first 50 characters
  *       of the first user message.
  *     security:
+ *       - {}
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
@@ -330,34 +331,12 @@ const upload = multer({
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  *       404:
  *         description: Conversation not found
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
- *       429:
- *         description: Access token budget exhausted
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 error:
- *                   type: string
- *                 tokens_used:
- *                   type: number
- *                 total_allowed:
- *                   type: number
- *                 window_expires_at:
- *                   type: string
- *                   format: date-time
  *       500:
  *         description: Internal server error
  *         content:
@@ -367,7 +346,7 @@ const upload = multer({
  */
 messagesRouter.post(
   '/:conversationId/messages',
-  authenticate,
+  optionalAuthenticate,
   checkAccess,
   upload.single('file'),
   async (req, res) => {
@@ -776,6 +755,7 @@ messagesRouter.post(
  *       No-op-safe to call when nothing is in flight (e.g. it already finished) — returns 404
  *       rather than an error.
  *     security:
+ *       - {}
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
@@ -787,12 +767,6 @@ messagesRouter.post(
  *     responses:
  *       204:
  *         description: Generation cancelled
- *       401:
- *         description: Unauthorized
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  *       404:
  *         description: Conversation not found, or nothing is currently generating for it
  *         content:
@@ -806,7 +780,7 @@ messagesRouter.post(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-messagesRouter.post('/:conversationId/cancel', authenticate, async (req, res) => {
+messagesRouter.post('/:conversationId/cancel', optionalAuthenticate, async (req, res) => {
   try {
     const userId = req.user!.id;
     const conversationId = req.params.conversationId as string;

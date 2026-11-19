@@ -17,16 +17,8 @@ export async function checkAccess(req: Request, res: Response, next: NextFunctio
     res.setHeader('X-Access-Total-Allowed', result.totalAllowed);
     res.setHeader('X-Access-Window-Expires-At', result.windowExpiresAt.toISOString());
 
-    if (result.tokensRemaining <= 0) {
-      res.status(429).json({
-        error: 'Access token budget exhausted',
-        tokens_used: result.tokensUsed,
-        total_allowed: result.totalAllowed,
-        window_expires_at: result.windowExpiresAt,
-      });
-      return;
-    }
-
+    // Token limits are disabled on this branch: usage is still tracked and
+    // reported via the headers above, but never blocks a request.
     next();
   } catch (err) {
     logger.error({ err }, 'Error checking access');
