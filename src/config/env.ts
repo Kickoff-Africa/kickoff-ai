@@ -50,7 +50,12 @@ export const config = {
   // and vision stay on the original self-hosted box below, since Ollama's
   // cloud tier only offers chat models, no embedding or vision models.
   ollamaCloudBaseUrl: requireUrl("OLLAMA_CLOUD_BASE_URL", "https://ollama.com"),
-  ollamaApiKey: requireEnv("OLLAMA_API_KEY"),
+  // Optional: only Ollama Cloud needs a key; a self-hosted box takes no auth.
+  ollamaApiKey: optionalEnv("OLLAMA_API_KEY", ""),
+  // True when chat points at anything other than Ollama Cloud (i.e. a
+  // self-hosted, typically CPU-bound box). Chat/title calls are then queued
+  // like the vision path, since concurrent generations can OOM that box.
+  ollamaChatSelfHosted: !requireUrl("OLLAMA_CLOUD_BASE_URL", "https://ollama.com").startsWith("https://ollama.com"),
   ollamaSimpleModel: optionalEnv("OLLAMA_SIMPLE_MODEL", "gpt-oss:120b-cloud"),
   ollamaModerateModel: optionalEnv("OLLAMA_MODERATE_MODEL", "gpt-oss:120b-cloud"),
   ollamaComplexModel: optionalEnv("OLLAMA_COMPLEX_MODEL", "gpt-oss:120b-cloud"),

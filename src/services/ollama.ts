@@ -118,14 +118,18 @@ async function postOllamaEmbed(path: string, body: unknown): Promise<Response> {
 
 // Unqueued: Ollama's cloud API is a hosted service, not the single CPU-bound
 // self-hosted box, so it doesn't need the queueing that embed/vision calls do.
+// When OLLAMA_CLOUD_BASE_URL points at a self-hosted box instead, calls are
+// queued (single slot) like the vision path.
 async function postOllamaCloud(path: string, body: unknown): Promise<Response> {
-  return postOllamaWithRetry(
-    config.ollamaCloudBaseUrl,
-    path,
-    body,
-    AbortSignal.timeout(config.ollamaQuickTimeoutMs),
-    config.ollamaApiKey,
-  );
+  const run = () =>
+    postOllamaWithRetry(
+      config.ollamaCloudBaseUrl,
+      path,
+      body,
+      AbortSignal.timeout(config.ollamaQuickTimeoutMs),
+      config.ollamaApiKey || undefined,
+    );
+  return config.ollamaChatSelfHosted ? withOllamaQueue(run) : run();
 }
 
 // ---------- embed ----------
@@ -253,7 +257,7 @@ export async function chatStream(
         options: { temperature: 0.35, num_predict: 4096 },
       },
       signal,
-      isVision ? undefined : config.ollamaApiKey,
+      isVision ? undefined : config.ollamaApiKey || undefined,
     );
 
     if (!res.body) {
@@ -312,5 +316,5 @@ export async function chatStream(
     return { content: fullContent, tokensUsed: promptEvalCount + evalCount, cancelled: false };
   };
 
-  return isVision ? withOllamaQueue(runGeneration) : runGeneration();
+  return isVision || config.ollamaChatSelfHosted ? withOllamaQueue(runGeneration) : runGeneration();
 }
