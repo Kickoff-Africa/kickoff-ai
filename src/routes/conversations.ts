@@ -5,6 +5,18 @@ import { optionalAuthenticate } from '../middleware/authenticate';
 
 export const conversationsRouter = Router();
 
+// Reject malformed IDs (e.g. an unfilled "{conversationId}" placeholder from the
+// docs UI) up front — otherwise Postgres throws "invalid input syntax for type
+// uuid" and the caller gets a 500 instead of a 404.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+conversationsRouter.param('id', (_req, res, next, value) => {
+  if (!UUID_RE.test(String(value))) {
+    res.status(404).json({ error: 'Conversation not found' });
+    return;
+  }
+  next();
+});
+
 /**
  * @openapi
  * /conversations:
