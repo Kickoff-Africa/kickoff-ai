@@ -106,6 +106,53 @@ const upload = multer({
 
 /**
  * @openapi
+ * /conversations/messages:
+ *   post:
+ *     tags: [Messages]
+ *     summary: Send a message in a new conversation (no conversation ID needed)
+ *     description: |
+ *       Same as `POST /conversations/{conversationId}/messages` — same body, file uploads and NDJSON
+ *       streaming response — but a new conversation is created automatically. Use this when you have
+ *       no conversation ID. The new ID is returned in the `X-Conversation-Id` response header and as
+ *       `conversation_id` on the final `done`/`cancelled` event; pass it to
+ *       `/conversations/{conversationId}/messages` on later turns to continue the same thread
+ *       (omit it and every message starts a fresh, context-free conversation).
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [content]
+ *             properties:
+ *               content:
+ *                 type: string
+ *                 example: What is the capital of France?
+ *     responses:
+ *       200:
+ *         description: NDJSON stream (see the conversation-scoped endpoint for event types)
+ *         headers:
+ *           X-Conversation-Id:
+ *             description: ID of the newly created conversation
+ *             schema:
+ *               type: string
+ *               format: uuid
+ *       400:
+ *         description: Message content is required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *       500:
+ *         description: Internal server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ */
+/**
+ * @openapi
  * /conversations/{conversationId}/messages:
  *   post:
  *     tags: [Messages]
@@ -211,7 +258,7 @@ const upload = multer({
  *         to wait for. Exists so a slow start is distinguishable from a hung connection — it
  *         carries no other information.
  *       - `{"type":"chunk","content":"..."}` — one per generated token/fragment, in order.
- *       - `{"type":"done", message, model_used, tokens_used, used_web_search,
+ *       - `{"type":"done", conversation_id, message, model_used, tokens_used, used_web_search,
  *         used_knowledge_base, access}` — exactly once, at the end of a successful generation.
  *         `access` carries the same fields the old `X-Access-*` response headers used to
  *         (`tokens_remaining`, `tokens_used`, `total_allowed`, `window_expires_at`) — those
@@ -229,6 +276,11 @@ const upload = multer({
  *         at least one `chunk` line may have already been sent. Failures caught *before* streaming
  *         starts (bad input, missing conversation, unsupported file, Ollama unreachable) still
  *         return a normal JSON error response with the appropriate 4xx/5xx status — see below.
+ *
+ *       ## No conversation ID?
+ *
+ *       Use `POST /conversations/messages` instead — it creates a conversation for you and returns its
+ *       ID in the `X-Conversation-Id` header and as `conversation_id` on the final event.
  *
  *       ## Cancelling a generation
  *
@@ -353,7 +405,7 @@ const upload = multer({
  *               $ref: '#/components/schemas/Error'
  */
 messagesRouter.post(
-  '/:conversationId/messages',
+  ['/messages', '/:conversationId/messages'],
   optionalAuthenticate,
   checkAccess,
   upload.single('file'),
@@ -366,6 +418,8 @@ messagesRouter.post(
     // block) so the finally block below can always reach it to unregister,
     // regardless of which return/throw path this request takes.
     let generationController: AbortController | undefined;
+    // Hoisted so logging and the finally block see the auto-created ID too.
+    let activeConversationId: string | undefined = req.params.conversationId as string | undefined;
     try {
       const startTime = Date.now();
       const content = req.body?.content as string | undefined;
@@ -375,7 +429,20 @@ messagesRouter.post(
       }
 
       const userId = req.user!.id;
-      const conversationId = req.params.conversationId as string;
+      let conversationId = activeConversationId;
+
+      // No conversation ID supplied (the public/no-login flow keeps no client
+      // session): start a fresh conversation. The new ID is returned in the
+      // X-Conversation-Id header and in the final stream event so the caller
+      // can keep the thread going by passing it back.
+      if (!conversationId) {
+        const created = await query(
+          `INSERT INTO conversations (user_id) VALUES ($1) RETURNING id`,
+          [userId],
+        );
+        conversationId = created.rows[0].id as string;
+      }
+      activeConversationId = conversationId;
 
       const convResult = await query(
         `SELECT id FROM conversations WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
@@ -491,6 +558,7 @@ messagesRouter.post(
         'Content-Type': 'application/x-ndjson; charset=utf-8',
         'Cache-Control': 'no-cache',
         'X-Accel-Buffering': 'no',
+        'X-Conversation-Id': conversationId,
       });
       // writeHead() alone doesn't put a single byte on the wire — Node only
       // flushes headers on the first write()/end() call.
@@ -671,6 +739,7 @@ messagesRouter.post(
       res.write(
         JSON.stringify({
           type: cancelled ? 'cancelled' : 'done',
+          conversation_id: conversationId,
           message: assistantMessage,
           model_used: modelUsed,
           tokens_used: tokensUsed,
@@ -696,7 +765,7 @@ messagesRouter.post(
         // reporting as a cancellation rather than a generic error.
         if (generationController?.signal.aborted) {
           logger.info(
-            { conversationId: req.params.conversationId, userId: req.user?.id },
+            { conversationId: activeConversationId, userId: req.user?.id },
             'Message generation cancelled before streaming began',
           );
           res.write(JSON.stringify({ type: 'cancelled' }) + '\n');
@@ -705,7 +774,7 @@ messagesRouter.post(
         logger.error(
           {
             err: { message: (err as Error).message, stack: (err as Error).stack },
-            conversationId: req.params.conversationId,
+            conversationId: activeConversationId,
             userId: req.user?.id,
           },
           'POST /conversations/:conversationId/messages error mid-stream',
@@ -719,7 +788,7 @@ messagesRouter.post(
       }
       if (err instanceof OllamaUnavailableError) {
         logger.error(
-          { err: { message: err.message }, conversationId: req.params.conversationId, userId: req.user?.id },
+          { err: { message: err.message }, conversationId: activeConversationId, userId: req.user?.id },
           'POST /conversations/:conversationId/messages: Ollama unavailable',
         );
         return res.status(503).json({ error: 'AI service is temporarily unavailable. Please try again shortly.' });
@@ -730,7 +799,7 @@ messagesRouter.post(
               message: (err as Error).message,
               stack: (err as Error).stack,
             },
-            conversationId: req.params.conversationId,
+            conversationId: activeConversationId,
             userId: req.user?.id,
           },
           'POST /conversations/:conversationId/messages error',
@@ -738,7 +807,7 @@ messagesRouter.post(
       return res.status(500).json({ error: 'Internal server error' });
     } finally {
       if (generationController) {
-        unregisterGeneration(req.params.conversationId as string, generationController);
+        unregisterGeneration(activeConversationId as string, generationController);
       }
     }
   },

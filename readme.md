@@ -140,6 +140,7 @@ Interactive docs available at `http://localhost:3000/docs` when the server is ru
 | `POST` | `/conversations` | — (optional JWT) | Create conversation |
 | `GET` | `/conversations` | — (optional JWT) | List your conversations |
 | `GET` | `/conversations/:id` | — (optional JWT) | Get conversation + messages |
+| `POST` | `/conversations/messages` | — | Send message in a new, auto-created conversation (ID returned in `X-Conversation-Id`) |
 | `POST` | `/conversations/:id/messages` | — (optional JWT) | Send message, receive Ollama response |
 
 ### Admin

@@ -32,6 +32,7 @@ const corsOptions: cors.CorsOptions = {
   origin: '*',
   allowedHeaders: ['Content-Type', 'Authorization'],
   exposedHeaders: [
+    'X-Conversation-Id',
     'X-Access-Tokens-Remaining',
     'X-Access-Tokens-Used',
     'X-Access-Total-Allowed',
