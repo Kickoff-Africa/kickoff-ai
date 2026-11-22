@@ -2,15 +2,12 @@
 import { config } from "../config/env";
 import { logger } from "../config/logger";
 import { withOllamaQueue, withOllamaEmbedQueue } from "./ollamaQueue";
+import { OllamaUnavailableError } from "./llmErrors";
+import { llamacppEmbed, llamacppGenerateTitle, llamacppChatStream } from "./llamacpp";
 
 const RETRY_DELAY_MS = 500;
 
-export class OllamaUnavailableError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "OllamaUnavailableError";
-  }
-}
+export { OllamaUnavailableError };
 
 type Complexity = "simple" | "moderate" | "complex";
 
@@ -134,6 +131,7 @@ async function postOllamaCloud(path: string, body: unknown): Promise<Response> {
 
 // ---------- embed ----------
 export async function embed(text: string): Promise<number[]> {
+  if (config.llmBackend === "llamacpp") return llamacppEmbed(text);
   const res = await postOllamaEmbed("/api/embed", {
     model: config.ollamaEmbedModel,
     input: text,
@@ -156,6 +154,8 @@ const TITLE_CHAR_LIMIT = 80;
 export async function generateConversationTitle(
   messages: ChatMessage[],
 ): Promise<string | null> {
+  if (config.llmBackend === "llamacpp") return llamacppGenerateTitle(messages, simpleModel());
+
   const transcript = messages
     .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
     .join("\n")
@@ -219,6 +219,8 @@ export async function chatStream(
   onDelta: (delta: string) => void,
   options?: { imageBase64?: string; imageMimeType?: string; signal?: AbortSignal },
 ): Promise<{ content: string; tokensUsed: number; cancelled: boolean }> {
+  if (config.llmBackend === "llamacpp") return llamacppChatStream(messages, model, onDelta, options);
+
   const ollamaMessages = messages.map((m, i) => {
     const isLast = i === messages.length - 1;
     if (isLast && m.role === "user" && options?.imageBase64) {

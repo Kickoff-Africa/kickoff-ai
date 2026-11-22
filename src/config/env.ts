@@ -49,6 +49,28 @@ export const config = {
   // self-hosted Ollama, just authenticated and remotely hosted. Embeddings
   // and vision stay on the original self-hosted box below, since Ollama's
   // cloud tier only offers chat models, no embedding or vision models.
+  // Which inference backend serves chat, titles and embeddings:
+  //   "ollama"   — Ollama (cloud or self-hosted), the original path
+  //   "llamacpp" — llama.cpp `llama-server`, fully self-hosted (OpenAI-style API)
+  llmBackend: ((): "ollama" | "llamacpp" => {
+    const v = optionalEnv("LLM_BACKEND", "ollama").toLowerCase();
+    if (v !== "ollama" && v !== "llamacpp") {
+      throw new Error(`LLM_BACKEND must be "ollama" or "llamacpp". Got: "${v}"`);
+    }
+    return v;
+  })(),
+  // llama.cpp servers (only used when LLM_BACKEND=llamacpp). Chat and
+  // embeddings are separate llama-server processes (an embedding model needs
+  // --embeddings); vision needs a server started with a multimodal projector
+  // (--mmproj) and defaults to the chat server.
+  llamacppBaseUrl: requireUrl("LLAMACPP_BASE_URL", "http://localhost:8080"),
+  llamacppEmbedBaseUrl: requireUrl("LLAMACPP_EMBED_BASE_URL", "http://localhost:8081"),
+  llamacppVisionBaseUrl: requireUrl(
+    "LLAMACPP_VISION_BASE_URL",
+    process.env.LLAMACPP_BASE_URL ?? "http://localhost:8080",
+  ),
+  // Optional: matches llama-server's --api-key, if you set one.
+  llamacppApiKey: optionalEnv("LLAMACPP_API_KEY", ""),
   ollamaCloudBaseUrl: requireUrl("OLLAMA_CLOUD_BASE_URL", "https://ollama.com"),
   // Optional: only Ollama Cloud needs a key; a self-hosted box takes no auth.
   ollamaApiKey: optionalEnv("OLLAMA_API_KEY", ""),

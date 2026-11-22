@@ -197,6 +197,7 @@ src/
 │   └── messages.ts      # POST /conversations/:id/messages
 ├── services/
 │   ├── access.ts        # Access window logic (get/create/addUsage/extend)
+│   ├── llamacpp.ts      # llama.cpp backend (LLM_BACKEND=llamacpp)
 │   ├── ollama.ts        # Ollama API (cloud chat/title + self-hosted embed/vision)
 │   ├── email.ts         # nodemailer magic link delivery
 │   └── token.ts         # Magic token generation + JWT sign/verify
@@ -219,6 +220,11 @@ src/
 | `SMTP_FROM` | No | `noreply@kickoff.africa` | Sender address |
 | `APP_URL` | No | `http://localhost:3000` | Public URL (used in magic link emails) |
 | `ADMIN_EMAIL` | Yes | — | Email address seeded as admin on startup |
+| `LLM_BACKEND` | No | `ollama` | `ollama` or `llamacpp` (llama.cpp `llama-server`, fully self-hosted) |
+| `LLAMACPP_BASE_URL` | No | `http://localhost:8080` | llama-server for chat and titles (only when `LLM_BACKEND=llamacpp`) |
+| `LLAMACPP_EMBED_BASE_URL` | No | `http://localhost:8081` | llama-server started with `--embeddings` for the knowledge base |
+| `LLAMACPP_VISION_BASE_URL` | No | `LLAMACPP_BASE_URL` | llama-server with a `--mmproj` projector, for image attachments |
+| `LLAMACPP_API_KEY` | No | — | Only if llama-server runs with `--api-key` |
 | `OLLAMA_CLOUD_BASE_URL` | No | `https://ollama.com` | Ollama cloud API base URL |
 | `OLLAMA_API_KEY` | Yes | — | Ollama Cloud API key |
 | `OLLAMA_SIMPLE_MODEL` | No | `gpt-oss:120b-cloud` | Cloud model used for conversation title generation |
@@ -229,3 +235,20 @@ src/
 | `OLLAMA_EMBED_MODEL` | No | `nomic-embed-text` | Self-hosted embedding model for the knowledge base and web search cache |
 | `LOG_LEVEL` | No | `info` | pino log level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`) |
 | `NODE_ENV` | No | — | Set to `production` to enable JSON logs and SMTP delivery |
+
+
+## Fully self-hosted with llama.cpp
+
+Set `LLM_BACKEND=llamacpp` to run chat, titles and embeddings on `llama-server` (llama.cpp) instead of Ollama. Nothing leaves your server.
+
+```bash
+# chat model (4-bit GGUF; -c caps the context, -t = physical CPU cores)
+llama-server -m qwen2.5-3b-instruct-q4_k_m.gguf --host 0.0.0.0 --port 8080 -c 4096 -t 4
+
+# embeddings (a separate process)
+llama-server -m nomic-embed-text-v1.5.Q8_0.gguf --embeddings --port 8081
+```
+
+A ready-made compose file that runs both servers and downloads the models on first start is in [deploy/llamacpp/docker-compose.yml](deploy/llamacpp/docker-compose.yml).
+
+Then set `LLAMACPP_BASE_URL` and `LLAMACPP_EMBED_BASE_URL`. The `OLLAMA_*_MODEL` names are only labels in this mode; the loaded GGUF decides the model. After switching backends, re-run `npm run seed:kb` — embeddings from a different server aren't guaranteed to match the old ones.
