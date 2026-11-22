@@ -47,7 +47,10 @@ async function postWithRetry(baseUrl: string, path: string, body: unknown, signa
       return await fetchOnce(baseUrl, path, body, signal);
     } catch (err) {
       if (signal.aborted) throw err;
-      lastError = (err as Error).message;
+      // Node's fetch reports every network failure as just "fetch failed";
+      // the useful part (ECONNREFUSED, ENOTFOUND, ETIMEDOUT) is in `cause`.
+      const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+      lastError = `${(err as Error).message}${cause ? ` (${cause.code ?? cause.message}) at ${baseUrl}` : ""}`;
     }
     if (attempt === 0) await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
   }
