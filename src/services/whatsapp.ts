@@ -4,9 +4,8 @@ import { query } from '../config/database';
 import { logger } from '../config/logger';
 import { chatStream, getModelForComplexity } from './ollama';
 import { queryKnowledgeBase, formatKnowledgeBaseMatches } from './knowledgeBase';
-import { shouldSearch, webSearch, formatSearchResults } from './webSearch';
 import { addUsage } from './access';
-import { SYSTEM_PROMPT, truncateHistory } from '../routes/messages';
+import { SYSTEM_PROMPT, KB_EMPTY_NOTICE, truncateHistory } from '../routes/messages';
 
 // WhatsApp rejects text bodies over 4096 characters.
 const WHATSAPP_MAX_LENGTH = 4096;
@@ -141,8 +140,7 @@ export async function handleIncomingMessage(msg: IncomingWhatsAppMessage): Promi
     config.chatHistoryCharBudget,
   );
 
-  // Same grounding as the web chat: knowledge base first, live search if the
-  // KB had nothing or the message looks time-sensitive.
+  // Same grounding as the web chat: knowledge base only, no web search.
   const contextBlocks: string[] = [];
   const kbMatches = await queryKnowledgeBase(content);
   if (kbMatches.length > 0) {
@@ -150,11 +148,8 @@ export async function handleIncomingMessage(msg: IncomingWhatsAppMessage): Promi
       `[Knowledge base excerpts for reference, use if relevant]\n${formatKnowledgeBaseMatches(kbMatches)}`,
     );
   }
-  if (shouldSearch(content) || kbMatches.length === 0) {
-    const results = await webSearch(content);
-    if (results.length > 0) {
-      contextBlocks.push(`[Web search results for reference, use if relevant]\n${formatSearchResults(results)}`);
-    }
+  if (kbMatches.length === 0) {
+    contextBlocks.push(KB_EMPTY_NOTICE);
   }
 
   let chatHistory: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = history;

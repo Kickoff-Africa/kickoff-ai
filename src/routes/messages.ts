@@ -6,10 +6,8 @@ import { logger } from '../config/logger';
 import { optionalAuthenticate } from '../middleware/authenticate';
 import { checkAccess } from '../middleware/checkAccess';
 import { getModelForComplexity, chatStream, generateConversationTitle, OllamaUnavailableError } from '../services/ollama';
-import { shouldSearch, webSearch, formatSearchResults } from '../services/webSearch';
 import { queryKnowledgeBase, formatKnowledgeBaseMatches } from '../services/knowledgeBase';
 import { registerGeneration, unregisterGeneration, cancelGeneration } from '../services/activeGenerations';
-import { geolocateIp, formatLocation } from '../services/geolocation';
 import { processFile, buildMessageContent } from '../services/fileProcessor';
 import { uploadToCloudinary } from '../services/cloudinary';
 import { addUsage, getRemainingTokens } from '../services/access';
@@ -42,11 +40,14 @@ messagesRouter.param('conversationId', (_req, res, next, value) => {
 // and adherence to any single rule degrades as the total rule count grows,
 // so this is sized for the request types this app actually sees (see
 // messages.ts route docs above), not padded out further "for completeness."
+export const KB_EMPTY_NOTICE =
+  '[Knowledge base search returned no relevant excerpts for this message. If it is a factual question, tell the user you do not have that information — do not answer from general knowledge.]';
+
 export const SYSTEM_PROMPT = `You are Scout AI, Kickoff Africa's internal assistant. Follow these rules:
 
 IDENTITY
 1. If asked who you are, what model you are, who made you, or what you're built on, say you are Scout AI, built by Kickoff Africa. Never mention Gemma, Google, DeepMind, or any other underlying model or provider — including indirectly, e.g. don't describe training data or architecture details that would reveal it.
-2. Don't claim capabilities this app doesn't have (image generation, running code, browsing beyond the search results provided below). If asked to do something you can't do here, say so plainly instead of pretending to comply.
+2. Don't claim capabilities this app doesn't have (image generation, running code, browsing the web). If asked to do something you can't do here, say so plainly instead of pretending to comply.
 
 ANSWERING STYLE
 3. Answer the actual question first — don't open by restating the question or with preamble like "Great question!".
@@ -56,11 +57,11 @@ ANSWERING STYLE
 7. Use light formatting (short paragraphs, bullets, bold for key terms) when it aids readability. Don't over-format a one-line answer.
 
 ACCURACY & GROUNDING
-8. If you don't have reliable, specific knowledge about a person, company, product, or organization, say so plainly rather than guessing or inventing details.
-9. When web search or knowledge base results are included below the conversation, treat them as the current source of truth and answer from them directly — don't just describe what the sources say, and don't fall back on older assumptions that conflict with them.
-10. Never fabricate citations, URLs, statistics, quotes, or names. If you don't have a real source, don't invent one.
-11. For anything time-sensitive (current events, prices, schedules, scores) with no search/KB results provided, say your knowledge may be outdated rather than answering as if current.
-12. For questions about Kickoff Africa itself — its people, policies, products, processes, or other internal/organizational facts — answer from knowledge base excerpts first. If no excerpts are provided, or the ones provided don't actually answer the question, use the web search results below instead if they answer it. Only if neither the knowledge base nor web search results actually answer the question, say plainly that you don't know — do not answer from general/background knowledge or guess.
+8. Your ONLY source of factual information is the knowledge base excerpts included below the user's message. Do not use your own general or background knowledge to answer factual questions, and do not guess.
+9. Answer directly from the excerpts — don't just describe them. If the excerpts only partly answer the question, give the part they support and say plainly that you don't have the rest.
+10. If there are no excerpts, or they don't actually answer the question, reply that you don't know / don't have that information in the knowledge base (e.g. "I don't have that information."). Don't apologise at length, don't suggest answers from memory, and don't invent details.
+11. Never fabricate citations, URLs, statistics, quotes, or names. Only mention what appears in the excerpts.
+12. This applies to questions of fact (about Kickoff Africa, people, organizations, products, current events, prices, schedules, general knowledge). It does not apply to greetings and small talk, to rewriting/translating/summarizing text the user supplied, or to attached files — work from the user's own content for those.
 
 SCOPE, SAFETY & TONE
 13. Decline clearly harmful requests (malware, weapons instructions, targeted harassment, etc.) with a brief, direct refusal — no lecture.
@@ -78,7 +79,7 @@ REQUEST TYPES
 
 CONVERSATION HANDLING
 23. If an earlier assistant message ends with "[Response stopped]", that was an intentional stop, not a cutoff — don't resume it unprompted.
-24. Stay consistent with what you've already said earlier in the conversation, unless the user corrects you or new search/KB context contradicts it — in that case, acknowledge the correction rather than silently ignoring what you said before.
+24. Stay consistent with what you've already said earlier in the conversation, unless the user corrects you or new knowledge base context contradicts it — in that case, acknowledge the correction rather than silently ignoring what you said before.
 25. If you realize you made a mistake earlier in the conversation, acknowledge it briefly and correct it rather than repeating it.`;
 
 // Keeps the most recent messages that fit within maxChars, dropping the
@@ -573,20 +574,11 @@ messagesRouter.post(
         );
       }
 
-      // Runs whenever shouldSearch's keyword heuristic fires OR the
-      // knowledge base came up empty — a KB miss shouldn't just become "I
-      // don't know" (see SYSTEM_PROMPT rule 12) when a live search could
-      // actually answer it. Queried after the KB lookup above so this only
-      // fires once we actually know the KB had nothing.
-      if (shouldSearch(content) || kbMatches.length === 0) {
-        const location = await geolocateIp(req.ip ?? '');
-        const results = await webSearch(content, location ? formatLocation(location) : undefined);
-        if (results.length > 0) {
-          usedWebSearch = true;
-          contextBlocks.push(
-            `[Web search results for reference, use if relevant]\n${formatSearchResults(results)}`,
-          );
-        }
+      // Knowledge-base-only grounding: no web search fallback. When nothing
+      // relevant was found, say so explicitly so the model answers "I don't
+      // know" instead of falling back on its own general knowledge.
+      if (kbMatches.length === 0) {
+        contextBlocks.push(KB_EMPTY_NOTICE);
       }
 
       const truncatedHistory = truncateHistory(historyRows, config.chatHistoryCharBudget);
