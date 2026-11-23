@@ -7,10 +7,10 @@
 # (or `docker compose -f deploy/llamacpp/docker-compose.yml up -d`), then set
 # the backend's env to the service names below:
 #   LLM_BACKEND=llamacpp
-#   LLAMACPP_BASE_URL=http://llama-chat:8080
-#   LLAMACPP_EMBED_BASE_URL=http://llama-embed:8081
-# (the app must share the compose network, or use the container hostnames
-# Coolify shows for these services.)
+#   LLAMACPP_BASE_URL=http://kickoff-llama-chat:8080
+#   LLAMACPP_EMBED_BASE_URL=http://kickoff-llama-embed:8081
+# Both services also join Coolify's shared `coolify` network (where the app
+# container lives) under the unique aliases below, so the app can resolve them.
 #
 # Tune via env: CHAT_MODEL (HF repo:quant), CTX_SIZE, THREADS.
 services:
@@ -27,6 +27,10 @@ services:
       --parallel 1
     volumes:
       - models:/models
+    networks:
+      default:
+      coolify:
+        aliases: [kickoff-llama-chat]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
@@ -47,6 +51,10 @@ services:
       -t 2
     volumes:
       - models:/models
+    networks:
+      default:
+      coolify:
+        aliases: [kickoff-llama-embed]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
       interval: 30s
@@ -56,3 +64,8 @@ services:
 
 volumes:
   models:
+
+networks:
+  coolify:
+    external: true
+    name: coolify
