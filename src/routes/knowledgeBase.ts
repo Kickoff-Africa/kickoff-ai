@@ -9,7 +9,7 @@ import { upsertDocumentChunks, deleteDocumentChunks } from '../services/knowledg
 
 export const knowledgeBaseRouter = Router();
 
-knowledgeBaseRouter.use(authenticate, requireAdmin);
+// Upload is intentionally public (no JWT). List and delete stay admin-only.
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -35,7 +35,7 @@ const upload = multer({
  *       500:
  *         description: Internal server error
  */
-knowledgeBaseRouter.get('/', async (_req: Request, res: Response): Promise<void> => {
+knowledgeBaseRouter.get('/', authenticate, requireAdmin, async (_req: Request, res: Response): Promise<void> => {
   try {
     const result = await query(
       `SELECT kb.id, kb.title, kb.filename, kb.source, kb.chunk_count, kb.created_at, kb.updated_at, u.email AS uploaded_by_email
@@ -58,9 +58,8 @@ knowledgeBaseRouter.get('/', async (_req: Request, res: Response): Promise<void>
  *     summary: Upload a document to the knowledge base
  *     description: |
  *       Accepts a PDF, Word (.docx), or text file, extracts its text, chunks and embeds it,
- *       and makes it retrievable in chat via semantic search. Admin only.
- *     security:
- *       - bearerAuth: []
+ *       and makes it retrievable in chat via semantic search. No authentication required.
+ *     security: []
  *     requestBody:
  *       required: true
  *       content:
@@ -81,9 +80,6 @@ knowledgeBaseRouter.get('/', async (_req: Request, res: Response): Promise<void>
  *       400:
  *         description: Missing file, unsupported file type, or empty extracted text
  *       401:
- *         description: Unauthorized
- *       403:
- *         description: Admin access required
  *       500:
  *         description: Internal server error
  */
@@ -121,11 +117,11 @@ knowledgeBaseRouter.post(
         `INSERT INTO knowledge_base_documents (id, title, filename, source, chunk_count, uploaded_by)
          VALUES ($1, $2, $3, 'upload', $4, $5)
          RETURNING id, title, filename, source, chunk_count, created_at, updated_at`,
-        [documentId, title, req.file.originalname, chunkCount, req.user!.id],
+        [documentId, title, req.file.originalname, chunkCount, req.user?.id ?? null],
       );
 
       logger.info(
-        { documentId, title, chunkCount, byAdminId: req.user!.id },
+        { documentId, title, chunkCount, byUserId: req.user?.id ?? null },
         'Knowledge base document added',
       );
 
@@ -165,7 +161,7 @@ knowledgeBaseRouter.post(
  *       500:
  *         description: Internal server error
  */
-knowledgeBaseRouter.delete('/:id', async (req: Request, res: Response): Promise<void> => {
+knowledgeBaseRouter.delete('/:id', authenticate, requireAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const id = req.params.id as string;
 
